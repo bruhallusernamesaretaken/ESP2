@@ -89,14 +89,6 @@ end
 CreateUI()
 
 -- ===================== Drawing helpers =====================
-local function createBox()
-    local box = Drawing.new("Square")
-    box.Thickness = 2
-    box.Filled = false
-    box.Visible = true
-    return box
-end
-
 local function createText(size)
     local text = Drawing.new("Text")
     text.Size = size
@@ -129,10 +121,8 @@ local function setupESP(player)
 
     local function onCharacter(char)
         local humanoid = char:FindFirstChildOfClass("Humanoid")
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not (humanoid and hrp) then return end
+        if not humanoid then return end
 
-        local box = createBox()
         local nameTag = createText(14)
         local distanceTag = createText(13)
         local skeleton = {}
@@ -140,10 +130,9 @@ local function setupESP(player)
             skeleton[pair[1].."_"..pair[2]] = createLine()
         end
 
-        ESPObjects[player] = {Box=box, Name=nameTag, Distance=distanceTag, Skeleton=skeleton, Character=char}
+        ESPObjects[player] = {Name=nameTag, Distance=distanceTag, Skeleton=skeleton, Character=char}
 
         humanoid.Died:Connect(function()
-            box:Remove()
             nameTag:Remove()
             distanceTag:Remove()
             for _, line in pairs(skeleton) do
@@ -163,63 +152,45 @@ for _, p in ipairs(Players:GetPlayers()) do
     setupESP(p)
 end
 Players.PlayerAdded:Connect(setupESP)
+Players.PlayerRemoving:Connect(function(player)
+    local data = ESPObjects[player]
+    if data then
+        data.Name:Remove()
+        data.Distance:Remove()
+        for _, line in pairs(data.Skeleton) do
+            line:Remove()
+        end
+        ESPObjects[player] = nil
+    end
+end)
 
 -- ===================== ESP Update =====================
 RunService.RenderStepped:Connect(function()
     for player, data in pairs(ESPObjects) do
         local char = data.Character
-        if not char then continue end
+        if not char or not char.Parent then
+            -- remove ESP if character leaves world
+            data.Name:Remove()
+            data.Distance:Remove()
+            for _, line in pairs(data.Skeleton) do
+                line:Remove()
+            end
+            ESPObjects[player] = nil
+            continue
+        end
+
         local humanoid = char:FindFirstChildOfClass("Humanoid")
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if not (humanoid and hrp) then continue end
 
-        -- ================= Box ESP =================
-        local topPos3D = hrp.Position + Vector3.new(0, humanoid.HipHeight + 2, 0)
-        local bottomPos3D = hrp.Position - Vector3.new(0, 2, 0)
-        local leftPos3D = hrp.Position - hrp.CFrame.RightVector * 1
-        local rightPos3D = hrp.Position + hrp.CFrame.RightVector * 1
-
-        local top, onTop = Camera:WorldToViewportPoint(topPos3D)
-        local bottom, onBottom = Camera:WorldToViewportPoint(bottomPos3D)
-        local left, onLeft = Camera:WorldToViewportPoint(leftPos3D)
-        local right, onRight = Camera:WorldToViewportPoint(rightPos3D)
-
-        local box = data.Box
-        local nameTag = data.Name
-        local distanceTag = data.Distance
-
-        if onTop and onBottom and onLeft and onRight then
-            local height = math.abs(top.Y - bottom.Y)
-            local width = math.abs(right.X - left.X)
-
-            box.Size = Vector2.new(width, height)
-            box.Position = Vector2.new(left.X, top.Y)
-
-            local color = COLORS.Enemy
-            if Whitelist[player.Name] then
-                color = COLORS.Ally
-            elseif Blacklist[player.Name] then
-                color = COLORS.Enemy
-            elseif LocalPlayer.Team and player.Team == LocalPlayer.Team then
-                color = COLORS.Ally
-            end
-            box.Color = color
-
-            -- Name & Distance
-            nameTag.Text = player.Name
-            nameTag.Position = Vector2.new(top.X, top.Y - 20)
-            nameTag.Color = color
-            nameTag.Visible = true
-
-            local distance = math.floor((Camera.CFrame.Position - hrp.Position).Magnitude)
-            distanceTag.Text = distance.." studs"
-            distanceTag.Position = Vector2.new(top.X, top.Y - 5)
-            distanceTag.Color = color
-            distanceTag.Visible = true
-        else
-            box.Visible = false
-            nameTag.Visible = false
-            distanceTag.Visible = false
+        -- Determine color
+        local color = COLORS.Enemy
+        if Whitelist[player.Name] then
+            color = COLORS.Ally
+        elseif Blacklist[player.Name] then
+            color = COLORS.Enemy
+        elseif LocalPlayer.Team and player.Team == LocalPlayer.Team then
+            color = COLORS.Ally
         end
 
         -- ================= Skeleton ESP =================
@@ -234,11 +205,33 @@ RunService.RenderStepped:Connect(function()
                     line.From = Vector2.new(p1.X,p1.Y)
                     line.To = Vector2.new(p2.X,p2.Y)
                     line.Visible = true
+                    line.Color = COLORS.Skeleton
                 else
                     line.Visible = false
                 end
             else
                 line.Visible = false
+            end
+        end
+
+        -- ================= Name & Distance =================
+        local head = char:FindFirstChild("Head")
+        if head then
+            local headPos, onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
+            if onScreen then
+                data.Name.Text = player.Name
+                data.Name.Position = Vector2.new(headPos.X, headPos.Y - 20)
+                data.Name.Color = color
+                data.Name.Visible = true
+
+                local distance = math.floor((Camera.CFrame.Position - hrp.Position).Magnitude)
+                data.Distance.Text = distance.." studs"
+                data.Distance.Position = Vector2.new(headPos.X, headPos.Y - 5)
+                data.Distance.Color = color
+                data.Distance.Visible = true
+            else
+                data.Name.Visible = false
+                data.Distance.Visible = false
             end
         end
     end
