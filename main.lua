@@ -139,9 +139,20 @@ local R15Bones = {
 -- ===================== ESP Setup =====================
 function setupESP(player)
     if player == LocalPlayer then return end
-    if ESPObjects[player] then return end -- Prevent duplicates
+    if ESPObjects[player] then return end -- prevent duplicates
 
     local function onCharacter(char)
+        -- Remove old ESP if it exists
+        if ESPObjects[player] then
+            local old = ESPObjects[player]
+            if old.Name then old.Name:Remove() end
+            if old.Distance then old.Distance:Remove() end
+            for _, line in pairs(old.Skeleton or {}) do
+                line:Remove()
+            end
+            ESPObjects[player] = nil
+        end
+
         local humanoid = char:FindFirstChildOfClass("Humanoid")
         if not humanoid then return end
 
@@ -155,32 +166,38 @@ function setupESP(player)
         ESPObjects[player] = {Name=nameTag, Distance=distanceTag, Skeleton=skeleton, Character=char}
 
         humanoid.Died:Connect(function()
-            nameTag:Remove()
-            distanceTag:Remove()
-            for _, line in pairs(skeleton) do
-                line:Remove()
+            if ESPObjects[player] then
+                local old = ESPObjects[player]
+                if old.Name then old.Name:Remove() end
+                if old.Distance then old.Distance:Remove() end
+                for _, line in pairs(old.Skeleton or {}) do
+                    line:Remove()
+                end
+                ESPObjects[player] = nil
             end
-            ESPObjects[player] = nil
         end)
     end
 
+    -- Connect to CharacterAdded to handle resets
+    player.CharacterAdded:Connect(onCharacter)
     if player.Character then
         onCharacter(player.Character)
     end
-    player.CharacterAdded:Connect(onCharacter)
 end
 
--- Connect ESP to all players
+-- Setup ESP for all existing players
 for _, p in ipairs(Players:GetPlayers()) do
     setupESP(p)
 end
+
+-- Setup ESP for new players joining
 Players.PlayerAdded:Connect(setupESP)
 Players.PlayerRemoving:Connect(function(player)
-    local data = ESPObjects[player]
-    if data then
-        data.Name:Remove()
-        data.Distance:Remove()
-        for _, line in pairs(data.Skeleton) do
+    if ESPObjects[player] then
+        local old = ESPObjects[player]
+        if old.Name then old.Name:Remove() end
+        if old.Distance then old.Distance:Remove() end
+        for _, line in pairs(old.Skeleton or {}) do
             line:Remove()
         end
         ESPObjects[player] = nil
