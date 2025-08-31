@@ -213,6 +213,18 @@ local function setupESP(player)
 		local humanoid = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
 		-- create visuals (safe even if humanoid nil)
 		createVisualsForCharacter(player, char, data)
+
+		-- 🔹 FIX: Clear ESP immediately when humanoid dies
+		if humanoid then
+			local ok, conn = pcall(function()
+				return humanoid.Died:Connect(function()
+					clearVisuals(data)
+				end)
+			end)
+			if ok and conn then
+				table.insert(data._connections, conn)
+			end
+		end
 	end
 
 	local function onCharacterRemoving(char)
@@ -340,7 +352,7 @@ RunService.RenderStepped:Connect(function()
 			local dist = math.floor((camPos - hrp.Position).Magnitude)
 			if data.Name and Settings.ShowName then
 				data.Name.Text = player.DisplayName or player.Name
-				data.Name.Position = Vector2.new(screenPos.X, screenPos.Y)
+				data.Name.Position = Vector2.new(screenPos.X, screenPos.Y + 50)
 				data.Name.Color = color -- tint name text to player color
 				data.Name.Visible = true
 			elseif data.Name then
