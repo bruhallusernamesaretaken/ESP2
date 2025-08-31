@@ -209,11 +209,6 @@ RunService.RenderStepped:Connect(function()
 
         -- Line-of-sight check
         local direction = (hrp.Position - origin).Unit * (hrp.Position - origin).Magnitude
-        local rayParams = RaycastParams.new()
-        rayParams.FilterType = Enum.RaycastFilterType.Blacklist
-        rayParams.FilterDescendantsInstances = {LocalPlayer.Character} -- ignore self
-        local rayResult = workspace:Raycast(origin, direction, rayParams)
-        local visible = not rayResult or rayResult.Instance:IsDescendantOf(char)
 
         -- Determine color
         local color = COLORS.Enemy
@@ -230,7 +225,7 @@ RunService.RenderStepped:Connect(function()
             local part1 = char:FindFirstChild(pair[1])
             local part2 = char:FindFirstChild(pair[2])
             local line = data.Skeleton[pair[1].."_"..pair[2]]
-            if part1 and part2 and visible then
+            if part1 and part2 then
                 local p1, on1 = Camera:WorldToViewportPoint(part1.Position)
                 local p2, on2 = Camera:WorldToViewportPoint(part2.Position)
                 if on1 and on2 then
@@ -259,7 +254,7 @@ RunService.RenderStepped:Connect(function()
                 local distance = math.floor((Camera.CFrame.Position - hrp.Position).Magnitude)
                 data.Distance.Text = distance.." studs"
                 data.Distance.Position = Vector2.new(headPos.X, headPos.Y - 5)
-                data.Distance.Color = color
+                data.Distance.Color = Color3.fromRGB(180, 180, 180)
                 data.Distance.Visible = true
             else
                 data.Name.Visible = false
