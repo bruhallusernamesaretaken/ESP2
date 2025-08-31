@@ -73,17 +73,14 @@ local function CreateUI()
             Blacklist[name] = nil
         end
     end)
-
+    
     BLButton.MouseButton1Click:Connect(function()
         local name = InputBox.Text
         if name ~= "" then
-            if Whitelist[name] then
-                Whitelist[name] = nil
-            else
-                Blacklist[name] = true
-            end
+            Blacklist[name] = true
+            Whitelist[name] = nil
         end
-    end)
+    end)    
 end
 
 CreateUI()
@@ -185,6 +182,7 @@ RunService.RenderStepped:Connect(function()
 
         -- Determine color
         local color = COLORS.Enemy
+
         if Whitelist[player.Name] then
             color = COLORS.Ally
         elseif Blacklist[player.Name] then
