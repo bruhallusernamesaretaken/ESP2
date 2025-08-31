@@ -188,6 +188,8 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 -- ===================== ESP Update =====================
+local MAX_DISTANCE = 1000
+
 RunService.RenderStepped:Connect(function()
     local origin = Camera.CFrame.Position
 
@@ -207,13 +209,17 @@ RunService.RenderStepped:Connect(function()
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if not (humanoid and hrp) then continue end
 
-        -- Line-of-sight check
-        local direction = (hrp.Position - origin).Unit * (hrp.Position - origin).Magnitude
-        local rayParams = RaycastParams.new()
-        rayParams.FilterType = Enum.RaycastFilterType.Blacklist
-        rayParams.FilterDescendantsInstances = {LocalPlayer.Character} -- ignore self
-        local rayResult = workspace:Raycast(origin, direction, rayParams)
-        local visible = not rayResult or rayResult.Instance:IsDescendantOf(char)
+        -- Distance check
+        local distance = (hrp.Position - origin).Magnitude
+        if distance > MAX_DISTANCE then
+            -- Hide ESP if too far
+            data.Name.Visible = false
+            data.Distance.Visible = false
+            for _, line in pairs(data.Skeleton) do
+                line.Visible = false
+            end
+            continue
+        end
 
         -- Determine color
         local color = COLORS.Enemy
@@ -230,7 +236,7 @@ RunService.RenderStepped:Connect(function()
             local part1 = char:FindFirstChild(pair[1])
             local part2 = char:FindFirstChild(pair[2])
             local line = data.Skeleton[pair[1].."_"..pair[2]]
-            if part1 and part2 and visible then
+            if part1 and part2 then
                 local p1, on1 = Camera:WorldToViewportPoint(part1.Position)
                 local p2, on2 = Camera:WorldToViewportPoint(part2.Position)
                 if on1 and on2 then
@@ -250,14 +256,13 @@ RunService.RenderStepped:Connect(function()
         local head = char:FindFirstChild("Head")
         if head then
             local headPos, onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
-            if onScreen and visible then
+            if onScreen then
                 data.Name.Text = player.Name
                 data.Name.Position = Vector2.new(headPos.X, headPos.Y - 20)
                 data.Name.Color = color
                 data.Name.Visible = true
 
-                local distance = math.floor((Camera.CFrame.Position - hrp.Position).Magnitude)
-                data.Distance.Text = distance.." studs"
+                data.Distance.Text = math.floor(distance).." studs"
                 data.Distance.Position = Vector2.new(headPos.X, headPos.Y - 5)
                 data.Distance.Color = color
                 data.Distance.Visible = true
