@@ -13,14 +13,14 @@ local Settings = {
 	ShowSkeleton = true,
 
 	-- colorMode: "team" (use player's TeamColor), "friendEnemy" (friendly/enemy), "custom"
-	ColorMode = "team",
+	ColorMode = "friendEnemy",
 
 	-- used when ColorMode == "custom"
 	CustomColor = Color3.fromRGB(200, 100, 255),
 
 	-- colors used for friend/enemy mode
-	FriendColor = Color3.fromRGB(90, 200, 90),
-	EnemyColor  = Color3.fromRGB(240, 80, 80),
+	FriendColor = Color3.fromRGB(0, 255, 0),
+	EnemyColor  = Color3.fromRGB(255, 0, 0),
 
 	-- maximum distance to show ESP (nil or number)
 	MaxDistance = 5000, -- e.g., 300
