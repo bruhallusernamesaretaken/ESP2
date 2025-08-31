@@ -352,7 +352,7 @@ RunService.RenderStepped:Connect(function()
 			local dist = math.floor((camPos - hrp.Position).Magnitude)
 			if data.Name and Settings.ShowName then
 				data.Name.Text = player.DisplayName or player.Name
-				data.Name.Position = Vector2.new(screenPos.X, screenPos.Y + 50)
+				data.Name.Position = Vector2.new(screenPos.X, screenPos.Y - 50)
 				data.Name.Color = color -- tint name text to player color
 				data.Name.Visible = true
 			elseif data.Name then
