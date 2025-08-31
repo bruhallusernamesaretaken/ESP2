@@ -1,187 +1,147 @@
+--// Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
-local ESP = {}
+--// Whitelist & Blacklist
+local Whitelist = {}
+local Blacklist = {}
 
--- Helper: Create Drawing object for lines (skeleton stays white)
-local function createLine()
-	local line = Drawing.new("Line")
-	line.Thickness = 2
-	line.Color = Color3.new(1, 1, 1) -- always white
-	line.Visible = false
-	return line
+--// ESP Container
+local ESPFolder = Instance.new("Folder", game.CoreGui)
+ESPFolder.Name = "ESP"
+
+--// UI Creation
+local ScreenGui = Instance.new("ScreenGui", game.CoreGui)
+ScreenGui.Name = "ESP_UI"
+ScreenGui.ResetOnSpawn = false
+
+local Frame = Instance.new("Frame", ScreenGui)
+Frame.Size = UDim2.new(0, 250, 0, 150)
+Frame.Position = UDim2.new(0.3, 0, 0.3, 0)
+Frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+Frame.Active = true
+Frame.Draggable = true
+
+local Title = Instance.new("TextLabel", Frame)
+Title.Size = UDim2.new(1, 0, 0, 30)
+Title.BackgroundColor3 = Color3.fromRGB(45,45,45)
+Title.Text = "Whitelist / Blacklist"
+Title.TextColor3 = Color3.fromRGB(255,255,255)
+Title.Font = Enum.Font.SourceSansBold
+Title.TextSize = 16
+
+local NameBox = Instance.new("TextBox", Frame)
+NameBox.Size = UDim2.new(1, -20, 0, 30)
+NameBox.Position = UDim2.new(0, 10, 0, 40)
+NameBox.PlaceholderText = "Enter Player Name..."
+NameBox.Text = ""
+NameBox.BackgroundColor3 = Color3.fromRGB(50,50,50)
+NameBox.TextColor3 = Color3.fromRGB(255,255,255)
+
+local WhitelistBtn = Instance.new("TextButton", Frame)
+WhitelistBtn.Size = UDim2.new(0.5, -15, 0, 30)
+WhitelistBtn.Position = UDim2.new(0, 10, 0, 80)
+WhitelistBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+WhitelistBtn.Text = "Whitelist"
+WhitelistBtn.TextColor3 = Color3.new(1,1,1)
+
+local BlacklistBtn = Instance.new("TextButton", Frame)
+BlacklistBtn.Size = UDim2.new(0.5, -15, 0, 30)
+BlacklistBtn.Position = UDim2.new(0.5, 5, 0, 80)
+BlacklistBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+BlacklistBtn.Text = "Blacklist"
+BlacklistBtn.TextColor3 = Color3.new(1,1,1)
+
+--// Handle whitelist & blacklist logic
+local function UpdateList(name, listType)
+    name = name:lower()
+    if listType == "Whitelist" then
+        Blacklist[name] = nil
+        Whitelist[name] = true
+    elseif listType == "Blacklist" then
+        Whitelist[name] = nil
+        Blacklist[name] = true
+    end
 end
 
--- Helper: Create Drawing object for box (rectangle)
-local function createBox()
-	local box = Drawing.new("Square")
-	box.Thickness = 2
-	box.Filled = false
-	box.Visible = false
-	return box
+WhitelistBtn.MouseButton1Click:Connect(function()
+    if NameBox.Text ~= "" then
+        UpdateList(NameBox.Text, "Whitelist")
+    end
+end)
+
+BlacklistBtn.MouseButton1Click:Connect(function()
+    if NameBox.Text ~= "" then
+        UpdateList(NameBox.Text, "Blacklist")
+    end
+end)
+
+--// Function to create ESP
+local function CreateESP(player)
+    if player == LocalPlayer then return end
+    if ESPFolder:FindFirstChild(player.Name) then return end
+
+    local Billboard = Instance.new("BillboardGui", ESPFolder)
+    Billboard.Name = player.Name
+    Billboard.AlwaysOnTop = true
+    Billboard.Size = UDim2.new(4,0,6,0) -- better sized box
+    Billboard.Adornee = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+
+    local Box = Instance.new("Frame", Billboard)
+    Box.Size = UDim2.new(1,0,1,0)
+    Box.BackgroundTransparency = 1
+    Box.BorderSizePixel = 2
+    Box.BorderColor3 = Color3.new(1,0,0)
+
+    -- Skeleton ESP (white lines)
+    local function DrawSkeleton(char)
+        for _, part in ipairs(char:GetChildren()) do
+            if part:IsA("BasePart") then
+                local adorn = Instance.new("BoxHandleAdornment", Billboard)
+                adorn.Size = part.Size
+                adorn.Adornee = part
+                adorn.AlwaysOnTop = true
+                adorn.ZIndex = 1
+                adorn.Color3 = Color3.new(1,1,1)
+                adorn.Transparency = 0.5
+            end
+        end
+    end
+
+    if player.Character then
+        DrawSkeleton(player.Character)
+        player.CharacterAdded:Connect(DrawSkeleton)
+    end
 end
 
--- Create ESP visuals for a player
-local function setupESP(player)
-	if player == LocalPlayer then return end
-
-	local function onCharacterAdded(char)
-		local humanoid = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
-		if not humanoid then return end
-
-		local rigType = humanoid.RigType
-
-		-- Name tag
-		local nameTag = Drawing.new("Text")
-		nameTag.Size = 14
-		nameTag.Center = true
-		nameTag.Outline = true
-		nameTag.Visible = false
-
-		-- Distance tag
-		local distanceTag = Drawing.new("Text")
-		distanceTag.Size = 13
-		distanceTag.Center = true
-		distanceTag.Outline = true
-		distanceTag.Color = Color3.new(0.6, 0.6, 0.6)
-		distanceTag.Visible = false
-
-		-- Skeleton lines
-		local skeletonLines = {}
-		local bonePairs = {}
-		if rigType == Enum.HumanoidRigType.R15 then
-			bonePairs = {
-				{"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
-				{"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"}, {"LeftLowerArm", "LeftHand"},
-				{"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"}, {"RightLowerArm", "RightHand"},
-				{"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"}, {"LeftLowerLeg", "LeftFoot"},
-				{"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"}, {"RightLowerLeg", "RightFoot"}
-			}
-		else -- R6
-			bonePairs = {
-				{"Head", "Torso"},
-				{"Torso", "Left Arm"}, {"Left Arm", "Left Leg"},
-				{"Torso", "Right Arm"}, {"Right Arm", "Right Leg"},
-			}
-		end
-
-		for _, pair in ipairs(bonePairs) do
-			local id = table.concat(pair, "_")
-			skeletonLines[id] = createLine()
-		end
-
-		-- Box ESP
-		local box = createBox()
-
-		ESP[player] = {
-			Name = nameTag,
-			Distance = distanceTag,
-			Skeleton = skeletonLines,
-			BonePairs = bonePairs,
-			Character = char,
-			Box = box,
-		}
-	end
-
-	if player.Character then
-		onCharacterAdded(player.Character)
-	end
-	player.CharacterAdded:Connect(onCharacterAdded)
-end
-
-local function removeESP(player)
-	local data = ESP[player]
-	if data then
-		if data.Name then data.Name:Remove() end
-		if data.Distance then data.Distance:Remove() end
-		if data.Box then data.Box:Remove() end
-		for _, line in pairs(data.Skeleton or {}) do
-			line:Remove()
-		end
-		ESP[player] = nil
-	end
-end
-
-for _, player in ipairs(Players:GetPlayers()) do
-	setupESP(player)
-end
-Players.PlayerAdded:Connect(setupESP)
-Players.PlayerRemoving:Connect(removeESP)
-
-local function drawLine(from, to, line)
-	if from and to then
-		local p1, on1 = Camera:WorldToViewportPoint(from.Position)
-		local p2, on2 = Camera:WorldToViewportPoint(to.Position)
-		if on1 and on2 then
-			line.From = Vector2.new(p1.X, p1.Y)
-			line.To = Vector2.new(p2.X, p2.Y)
-			line.Visible = true
-			return
-		end
-	end
-	line.Visible = false
-end
-
+--// ESP updater
 RunService.RenderStepped:Connect(function()
-	for player, data in pairs(ESP) do
-		local char = data.Character
-		if not char then continue end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local esp = ESPFolder:FindFirstChild(player.Name)
+            if not esp then
+                CreateESP(player)
+                esp = ESPFolder:FindFirstChild(player.Name)
+            end
+            if esp and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                esp.Adornee = player.Character.HumanoidRootPart
 
-		local head = char:FindFirstChild("Head")
-		local hrp = char:FindFirstChild("HumanoidRootPart")
-		local humanoid = char:FindFirstChildOfClass("Humanoid")
+                local box = esp:FindFirstChildOfClass("Frame")
+                local lowerName = player.Name:lower()
 
-		if head and hrp and humanoid then
-			local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
-			if onScreen then
-				local dist = math.floor((Camera.CFrame.Position - hrp.Position).Magnitude)
-
-				-- determine team color
-				local teamCount = #Players:GetTeams()
-				local isTeammate = (player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team)
-				local color
-				if teamCount <= 1 then
-					color = Color3.new(1, 0, 0) -- only one team -> always red
-				else
-					color = isTeammate and Color3.new(0, 1, 0) or Color3.new(1, 0, 0)
-				end
-
-				-- Name ESP
-				data.Name.Text = player.Name
-				data.Name.Position = Vector2.new(screenPos.X, screenPos.Y - 20)
-				data.Name.Color = color
-				data.Name.Visible = true
-
-				-- Distance ESP
-				data.Distance.Text = tostring(dist) .. " studs"
-				data.Distance.Position = Vector2.new(screenPos.X, screenPos.Y - 5)
-				data.Distance.Visible = true
-
-				-- Box ESP (better scaling)
-				local hrpPos, hrpOnScreen = Camera:WorldToViewportPoint(hrp.Position)
-				local scaleFactor = 1 / math.max(hrpPos.Z, 1) * 100
-				local boxWidth = 2 * scaleFactor
-				local boxHeight = 3 * scaleFactor
-
-				data.Box.Size = Vector2.new(boxWidth, boxHeight)
-				data.Box.Position = Vector2.new(hrpPos.X - boxWidth / 2, hrpPos.Y - boxHeight / 2)
-				data.Box.Color = color
-				data.Box.Visible = hrpOnScreen
-			else
-				data.Name.Visible = false
-				data.Distance.Visible = false
-				data.Box.Visible = false
-			end
-		end
-
-		-- Draw skeleton (always white)
-		for _, pair in ipairs(data.BonePairs) do
-			local part1 = char:FindFirstChild(pair[1])
-			local part2 = char:FindFirstChild(pair[2])
-			local line = data.Skeleton[table.concat(pair, "_")]
-			drawLine(part1, part2, line)
-		end
-	end
+                if Whitelist[lowerName] then
+                    box.BorderColor3 = Color3.new(0,1,0) -- Green
+                elseif Blacklist[lowerName] then
+                    box.BorderColor3 = Color3.new(1,0,0) -- Red (forced)
+                elseif #Players:GetPlayers() == 1 then
+                    box.BorderColor3 = Color3.new(1,0,0) -- Single team → Red
+                elseif player.Team == LocalPlayer.Team then
+                    box.BorderColor3 = Color3.new(0,0,1) -- Blue (same team)
+                else
+                    box.BorderColor3 = Color3.new(1,0,0) -- Red (enemy)
+                end
+            end
+        end
+    end
 end)
