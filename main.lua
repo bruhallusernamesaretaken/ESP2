@@ -26,8 +26,8 @@ local function CreateUI()
     ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
     local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0, 250, 0, 200)
-    Frame.Position = UDim2.new(0.5, -125, 0.5, -100)
+    Frame.Size = UDim2.new(0, 300, 0, 250)
+    Frame.Position = UDim2.new(0.5, -150, 0.5, -125)
     Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
     Frame.Active = true
     Frame.Draggable = true
@@ -65,6 +65,14 @@ local function CreateUI()
     BLButton.BackgroundColor3 = Color3.fromRGB(128, 0, 0)
     BLButton.Parent = Frame
 
+    local RefreshButton = Instance.new("TextButton")
+    RefreshButton.Size = UDim2.new(1, -20, 0, 30)
+    RefreshButton.Position = UDim2.new(0, 10, 0, 120)
+    RefreshButton.Text = "Refresh ESP"
+    RefreshButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    RefreshButton.BackgroundColor3 = Color3.fromRGB(50, 50, 150)
+    RefreshButton.Parent = Frame
+
     -- Button logic
     WLButton.MouseButton1Click:Connect(function()
         local name = InputBox.Text
@@ -73,14 +81,30 @@ local function CreateUI()
             Blacklist[name] = nil
         end
     end)
-    
+
     BLButton.MouseButton1Click:Connect(function()
         local name = InputBox.Text
         if name ~= "" then
             Blacklist[name] = true
             Whitelist[name] = nil
         end
-    end)    
+    end)
+
+    RefreshButton.MouseButton1Click:Connect(function()
+        -- Remove all ESP
+        for player, data in pairs(ESPObjects) do
+            if data.Name then data.Name:Remove() end
+            if data.Distance then data.Distance:Remove() end
+            for _, line in pairs(data.Skeleton or {}) do
+                line:Remove()
+            end
+        end
+        ESPObjects = {}
+        -- Recreate ESP for all players
+        for _, p in ipairs(Players:GetPlayers()) do
+            setupESP(p)
+        end
+    end)
 end
 
 CreateUI()
@@ -113,8 +137,9 @@ local R15Bones = {
 }
 
 -- ===================== ESP Setup =====================
-local function setupESP(player)
+function setupESP(player)
     if player == LocalPlayer then return end
+    if ESPObjects[player] then return end -- Prevent duplicates
 
     local function onCharacter(char)
         local humanoid = char:FindFirstChildOfClass("Humanoid")
@@ -145,6 +170,7 @@ local function setupESP(player)
     player.CharacterAdded:Connect(onCharacter)
 end
 
+-- Connect ESP to all players
 for _, p in ipairs(Players:GetPlayers()) do
     setupESP(p)
 end
@@ -163,10 +189,11 @@ end)
 
 -- ===================== ESP Update =====================
 RunService.RenderStepped:Connect(function()
+    local origin = Camera.CFrame.Position
+
     for player, data in pairs(ESPObjects) do
         local char = data.Character
         if not char or not char.Parent then
-            -- remove ESP if character leaves world
             data.Name:Remove()
             data.Distance:Remove()
             for _, line in pairs(data.Skeleton) do
@@ -180,9 +207,16 @@ RunService.RenderStepped:Connect(function()
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if not (humanoid and hrp) then continue end
 
+        -- Line-of-sight check
+        local direction = (hrp.Position - origin).Unit * (hrp.Position - origin).Magnitude
+        local rayParams = RaycastParams.new()
+        rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+        rayParams.FilterDescendantsInstances = {LocalPlayer.Character} -- ignore self
+        local rayResult = workspace:Raycast(origin, direction, rayParams)
+        local visible = not rayResult or rayResult.Instance:IsDescendantOf(char)
+
         -- Determine color
         local color = COLORS.Enemy
-
         if Whitelist[player.Name] then
             color = COLORS.Ally
         elseif Blacklist[player.Name] then
@@ -191,12 +225,12 @@ RunService.RenderStepped:Connect(function()
             color = COLORS.Ally
         end
 
-        -- ================= Skeleton ESP =================
+        -- Skeleton ESP
         for _, pair in ipairs(R15Bones) do
             local part1 = char:FindFirstChild(pair[1])
             local part2 = char:FindFirstChild(pair[2])
             local line = data.Skeleton[pair[1].."_"..pair[2]]
-            if part1 and part2 then
+            if part1 and part2 and visible then
                 local p1, on1 = Camera:WorldToViewportPoint(part1.Position)
                 local p2, on2 = Camera:WorldToViewportPoint(part2.Position)
                 if on1 and on2 then
@@ -212,11 +246,11 @@ RunService.RenderStepped:Connect(function()
             end
         end
 
-        -- ================= Name & Distance =================
+        -- Name & Distance
         local head = char:FindFirstChild("Head")
         if head then
             local headPos, onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
-            if onScreen then
+            if onScreen and visible then
                 data.Name.Text = player.Name
                 data.Name.Position = Vector2.new(headPos.X, headPos.Y - 20)
                 data.Name.Color = color
