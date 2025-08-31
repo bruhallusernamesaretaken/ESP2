@@ -1,6 +1,5 @@
--- Improved WA Universal ESP (name display fixed + various bugfixes / optimizations)
+-- Improved WA Universal ESP (distance display removed for performance)
 -- Assumes Drawing API + Highlight available (exploit environment)
--- ~ Brandon-style improvements: reuse drawings, fixed name selection, fewer allocations
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
@@ -12,17 +11,15 @@ local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
--- Storage
-local Drawings = {}     -- Drawings[player] = { Box = {...}, Connectors = {...}, Tracer = ..., HealthBar = {...}, Info = {...}, Snapline = ..., Skeleton = {...} }
-local Highlights = {}   -- Highlights[player] = Instance of Highlight
+local Drawings = {}
+local Highlights = {}
 
--- Colors & Settings (same defaults as your original, cleaned)
 local Colors = {
     Enemy = Color3.fromRGB(255, 25, 25),
     Ally = Color3.fromRGB(25, 255, 25),
     Neutral = Color3.fromRGB(255, 255, 255),
     Health = Color3.fromRGB(0, 255, 0),
-    Rainbow = Color3.fromRGB(255,255,255) -- replaced dynamically
+    Rainbow = Color3.fromRGB(255,255,255)
 }
 
 local Settings = {
@@ -41,7 +38,6 @@ local Settings = {
     HealthTextSuffix = "HP",
     NameESP = false,
     NameMode = "DisplayName", -- DisplayName | Username | Humanoid
-    ShowDistance = true,
     TextSize = 14,
     TextFont = 2,
     RainbowSpeed = 1,
@@ -63,7 +59,6 @@ local Settings = {
     SkeletonTransparency = 1
 }
 
--- Utility: get tracer origin (Vector2)
 local function GetTracerOrigin()
     local origin = Settings.TracerOrigin
     local vs = Camera.ViewportSize
@@ -79,7 +74,6 @@ local function GetTracerOrigin()
     end
 end
 
--- Utility: pick color for player (rainbow support)
 local function GetPlayerColor(player)
     if Settings.RainbowEnabled then
         if Settings.RainbowBoxes and Settings.BoxESP then return Colors.Rainbow end
@@ -92,13 +86,11 @@ local function GetPlayerColor(player)
     return Colors.Enemy
 end
 
--- Helper: safe WorldToViewportPoint wrapper that returns screen Vector2 and visible boolean and depth
 local function WorldToScreenPoint(worldPos)
     local screenV3, onScreen = Camera:WorldToViewportPoint(worldPos)
     return Vector2.new(screenV3.X, screenV3.Y), onScreen, screenV3.Z
 end
 
--- Create per-player drawing objects (reused)
 local function CreateESP(player)
     if player == LocalPlayer then return end
     if Drawings[player] then return end
@@ -114,27 +106,19 @@ local function CreateESP(player)
         Bottom = Drawing.new("Line")
     }
 
-    -- Connectors for 3D boxes (four lines)
     local connectors = {
         Drawing.new("Line"), Drawing.new("Line"), Drawing.new("Line"), Drawing.new("Line")
     }
 
-    -- tracer
     local tracer = Drawing.new("Line")
-
-    -- snapline
     local snapline = Drawing.new("Line")
 
-    -- healthbar
     local healthOutline = Drawing.new("Square")
     local healthFill = Drawing.new("Square")
     local healthText = Drawing.new("Text")
 
-    -- info texts
     local nameText = Drawing.new("Text")
-    local distanceText = Drawing.new("Text")
 
-    -- skeleton (optional) small set of lines (we'll create a set that's referred later)
     local skeleton = {
         Head = Drawing.new("Line"),
         UpperSpine = Drawing.new("Line"),
@@ -157,7 +141,6 @@ local function CreateESP(player)
         RightFoot = Drawing.new("Line")
     }
 
-    -- default properties
     for _, l in pairs(box) do
         l.Visible = false
         l.Thickness = Settings.BoxThickness
@@ -194,13 +177,6 @@ local function CreateESP(player)
     nameText.Outline = true
     nameText.Color = Colors.Enemy
 
-    distanceText.Visible = false
-    distanceText.Center = true
-    distanceText.Size = math.max(12, Settings.TextSize - 2)
-    distanceText.Font = Settings.TextFont
-    distanceText.Outline = true
-    distanceText.Color = Colors.Distance or Color3.fromRGB(200,200,200)
-
     for _, l in pairs(skeleton) do
         l.Visible = false
         l.Thickness = Settings.SkeletonThickness
@@ -208,7 +184,6 @@ local function CreateESP(player)
         l.Transparency = Settings.SkeletonTransparency
     end
 
-    -- Highlight (chams)
     local highlight = Instance.new("Highlight")
     highlight.FillColor = Settings.ChamsFillColor
     highlight.OutlineColor = Settings.ChamsOutlineColor
@@ -225,13 +200,12 @@ local function CreateESP(player)
         Tracer = tracer,
         Snapline = snapline,
         Health = { Outline = healthOutline, Fill = healthFill, Text = healthText },
-        Info = { Name = nameText, Distance = distanceText },
+        Info = { Name = nameText },
         Skeleton = skeleton,
         Highlight = highlight
     }
 end
 
--- Remove and cleanup
 local function RemoveESP(player)
     local d = Drawings[player]
     if not d then
@@ -248,7 +222,6 @@ local function RemoveESP(player)
     pcall(function() d.Health.Fill:Remove() end)
     pcall(function() d.Health.Text:Remove() end)
     pcall(function() d.Info.Name:Remove() end)
-    pcall(function() d.Info.Distance:Remove() end)
     for _, l in pairs(d.Skeleton) do pcall(function() l:Remove() end) end
 
     local highlight = d.Highlight
@@ -260,9 +233,7 @@ local function RemoveESP(player)
     Highlights[player] = nil
 end
 
--- Helper: get display name (humanoid preferred if requested)
 local function GetPlayerDisplayName(player, character)
-    -- Priority: Humanoid.DisplayName (if NameMode == "Humanoid") > player.DisplayName > player.Name
     if Settings.NameMode == "Humanoid" and character then
         local hum = character:FindFirstChildWhichIsA("Humanoid")
         if hum and hum.DisplayName and hum.DisplayName ~= "" then
@@ -275,7 +246,6 @@ local function GetPlayerDisplayName(player, character)
     return player.Name or ("Player"..tostring(player.UserId))
 end
 
--- Get extents size and cframe from root / character
 local function GetCharacterExtents(character)
     if not character then return Vector3.new(2, 5, 1), CFrame.new() end
     local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso") or character:FindFirstChild("HumanoidRootPart")
@@ -284,7 +254,6 @@ local function GetCharacterExtents(character)
     return size, cf
 end
 
--- Build 8 corners (world space) from cf & size
 local function GetBoxCornersWorld(cf, size)
     local corners = {
         cf * CFrame.new(-size.X/2, -size.Y/2, -size.Z/2).p,
@@ -299,7 +268,6 @@ local function GetBoxCornersWorld(cf, size)
     return corners
 end
 
--- Update skeleton drawing helper
 local function DrawBoneLine(aPart, bPart, line)
     if not aPart or not bPart or not line then
         if line then line.Visible = false end
@@ -322,7 +290,6 @@ local function DrawBoneLine(aPart, bPart, line)
     line.Transparency = Settings.SkeletonTransparency
 end
 
--- Update per-player ESP
 local function UpdateESP(player)
     if not Settings.Enabled then return end
     local d = Drawings[player]
@@ -330,14 +297,12 @@ local function UpdateESP(player)
 
     local character = player.Character
     if not character then
-        -- hide everything when no character
         for _, obj in pairs(d.Box) do obj.Visible = false end
         for _, obj in pairs(d.Connectors) do obj.Visible = false end
         d.Tracer.Visible = false
         d.Snapline.Visible = false
         for _, obj in pairs(d.Health) do if obj then obj.Visible = false end end
         d.Info.Name.Visible = false
-        d.Info.Distance.Visible = false
         for _, l in pairs(d.Skeleton) do l.Visible = false end
         if d.Highlight then d.Highlight.Enabled = false end
         return
@@ -345,14 +310,12 @@ local function UpdateESP(player)
 
     local root = character:FindFirstChild("HumanoidRootPart")
     if not root then
-        -- hide similarly
         for _, obj in pairs(d.Box) do obj.Visible = false end
         for _, obj in pairs(d.Connectors) do obj.Visible = false end
         d.Tracer.Visible = false
         d.Snapline.Visible = false
         for _, obj in pairs(d.Health) do if obj then obj.Visible = false end end
         d.Info.Name.Visible = false
-        d.Info.Distance.Visible = false
         for _, l in pairs(d.Skeleton) do l.Visible = false end
         if d.Highlight then d.Highlight.Enabled = false end
         return
@@ -366,7 +329,6 @@ local function UpdateESP(player)
         d.Snapline.Visible = false
         for _, obj in pairs(d.Health) do if obj then obj.Visible = false end end
         d.Info.Name.Visible = false
-        d.Info.Distance.Visible = false
         for _, l in pairs(d.Skeleton) do l.Visible = false end
         if d.Highlight then d.Highlight.Enabled = false end
         return
@@ -382,34 +344,28 @@ local function UpdateESP(player)
         d.Snapline.Visible = false
         for _, obj in pairs(d.Health) do if obj then obj.Visible = false end end
         d.Info.Name.Visible = false
-        d.Info.Distance.Visible = false
         for _, l in pairs(d.Skeleton) do l.Visible = false end
         if d.Highlight then d.Highlight.Enabled = false end
         return
     end
 
-    -- team check
     if Settings.TeamCheck and player.Team == LocalPlayer.Team and not Settings.ShowTeam then
         for _, obj in pairs(d.Box) do obj.Visible = false end
         d.Tracer.Visible = false
         d.Snapline.Visible = false
         for _, obj in pairs(d.Health) do if obj then obj.Visible = false end end
         d.Info.Name.Visible = false
-        d.Info.Distance.Visible = false
         for _, l in pairs(d.Skeleton) do l.Visible = false end
         if d.Highlight then d.Highlight.Enabled = false end
         return
     end
 
-    -- update rainbow
-    local color = GetPlayerColor(player)
-    -- Update rainbow color if enabled
     if Settings.RainbowEnabled then
         Colors.Rainbow = Color3.fromHSV((tick() * Settings.RainbowSpeed) % 1, 1, 1)
-        color = GetPlayerColor(player) -- re-evaluate
     end
 
-    -- Box calculation (screen-space)
+    local color = GetPlayerColor(player)
+
     local size, cf = GetCharacterExtents(character)
     local topV3, topOn = Camera:WorldToViewportPoint(cf.Position + Vector3.new(0, size.Y/2, 0))
     local bottomV3, bottomOn = Camera:WorldToViewportPoint(cf.Position - Vector3.new(0, size.Y/2, 0))
@@ -422,15 +378,12 @@ local function UpdateESP(player)
         local height = math.abs(bottom2.Y - top2.Y)
         local width = math.clamp(height * 0.5, 20, 400)
 
-        -- compute box top-left position (screen)
         local boxPos = Vector2.new(top2.X - width/2, top2.Y)
         local boxSize = Vector2.new(width, height)
 
-        -- Apply chosen style
         if Settings.BoxESP then
             if Settings.BoxStyle == "Corner" then
                 local cornerSize = math.clamp(width * 0.2, 6, width/2)
-                -- Top edge corners
                 d.Box.TopLeft.From = boxPos
                 d.Box.TopLeft.To = boxPos + Vector2.new(cornerSize, 0)
                 d.Box.TopLeft.Visible = true
@@ -439,7 +392,6 @@ local function UpdateESP(player)
                 d.Box.TopRight.To = boxPos + Vector2.new(boxSize.X - cornerSize, 0)
                 d.Box.TopRight.Visible = true
 
-                -- Bottom edge corners
                 d.Box.BottomLeft.From = boxPos + Vector2.new(0, boxSize.Y)
                 d.Box.BottomLeft.To = boxPos + Vector2.new(cornerSize, boxSize.Y)
                 d.Box.BottomLeft.Visible = true
@@ -448,7 +400,6 @@ local function UpdateESP(player)
                 d.Box.BottomRight.To = boxPos + Vector2.new(boxSize.X - cornerSize, boxSize.Y)
                 d.Box.BottomRight.Visible = true
 
-                -- vertical short lines near top
                 d.Box.Left.From = boxPos
                 d.Box.Left.To = boxPos + Vector2.new(0, cornerSize)
                 d.Box.Left.Visible = true
@@ -465,7 +416,6 @@ local function UpdateESP(player)
                 d.Box.Bottom.To = boxPos + Vector2.new(boxSize.X, boxSize.Y - cornerSize)
                 d.Box.Bottom.Visible = true
 
-                -- Hide connectors
                 for _, c in pairs(d.Connectors) do c.Visible = false end
 
             elseif Settings.BoxStyle == "Full" then
@@ -492,9 +442,7 @@ local function UpdateESP(player)
                 for _, c in pairs(d.Connectors) do c.Visible = false end
 
             else -- ThreeD
-                -- compute front/back world corners and project them
                 local worldCorners = GetBoxCornersWorld(cf, size)
-                -- indices: 1..8 as earlier: (-x,-y,-z) .. etc
                 local screens = {}
                 local allVisible = true
                 for i = 1, 8 do
@@ -503,17 +451,15 @@ local function UpdateESP(player)
                     screens[i] = Vector2.new(sV3.X, sV3.Y)
                 end
                 if allVisible then
-                    -- front face: use corners [3,7,1,5] etc depending on orientation; we'll map visually:
-                    local frontTL = screens[3] -- (-x, +y, -z)
-                    local frontTR = screens[7] -- (+x, +y, -z)
-                    local frontBL = screens[1] -- (-x,-y,-z)
-                    local frontBR = screens[5] -- (+x,-y,-z)
-                    local backTL  = screens[4] -- (-x,+y,+z)
-                    local backTR  = screens[8] -- (+x,+y,+z)
-                    local backBL  = screens[2] -- (-x,-y,+z)
-                    local backBR  = screens[6] -- (+x,-y,+z)
+                    local frontTL = screens[3]
+                    local frontTR = screens[7]
+                    local frontBL = screens[1]
+                    local frontBR = screens[5]
+                    local backTL  = screens[4]
+                    local backTR  = screens[8]
+                    local backBL  = screens[2]
+                    local backBR  = screens[6]
 
-                    -- front rectangle
                     d.Box.TopLeft.From = frontTL
                     d.Box.TopLeft.To = frontTR
                     d.Box.TopLeft.Visible = true
@@ -530,7 +476,6 @@ local function UpdateESP(player)
                     d.Box.BottomRight.To = frontBL
                     d.Box.BottomRight.Visible = true
 
-                    -- back rectangle
                     d.Box.Left.From = backTL
                     d.Box.Left.To = backTR
                     d.Box.Left.Visible = true
@@ -547,7 +492,6 @@ local function UpdateESP(player)
                     d.Box.Bottom.To = backBL
                     d.Box.Bottom.Visible = true
 
-                    -- connectors re-used edges
                     d.Connectors[1].From = frontTL; d.Connectors[1].To = backTL; d.Connectors[1].Visible = true
                     d.Connectors[2].From = frontTR; d.Connectors[2].To = backTR; d.Connectors[2].Visible = true
                     d.Connectors[3].From = frontBL; d.Connectors[3].To = backBL; d.Connectors[3].Visible = true
@@ -558,7 +502,6 @@ local function UpdateESP(player)
                 end
             end
 
-            -- set colors/widths on visible box lines
             for _, obj in pairs(d.Box) do
                 if obj.Visible then
                     obj.Color = color
@@ -577,7 +520,6 @@ local function UpdateESP(player)
         end
     end
 
-    -- Tracer
     if Settings.TracerESP then
         local origin = GetTracerOrigin()
         d.Tracer.From = origin
@@ -589,7 +531,6 @@ local function UpdateESP(player)
         d.Tracer.Visible = false
     end
 
-    -- Snapline (bottom origin)
     if Settings.Snaplines then
         local vs = Camera.ViewportSize
         d.Snapline.From = Vector2.new(vs.X/2, vs.Y)
@@ -600,12 +541,10 @@ local function UpdateESP(player)
         d.Snapline.Visible = false
     end
 
-    -- Health bar & text
     if Settings.HealthESP and humanoid then
         local hp = humanoid.Health
         local maxhp = humanoid.MaxHealth > 0 and humanoid.MaxHealth or 100
         local hpPercent = math.clamp(hp / maxhp, 0, 1)
-        -- find a box baseline position to anchor health, fallback center
         local healthHeight = math.max(10, (math.abs((Camera:WorldToViewportPoint(root.Position - Vector3.new(0, size.Y/2, 0)).Y) - Camera:WorldToViewportPoint(root.Position + Vector3.new(0, size.Y/2, 0)).Y)))
         local barWidth = 6
         local barHeight = math.max(10, healthHeight * 0.9)
@@ -642,18 +581,17 @@ local function UpdateESP(player)
         d.Health.Text.Visible = false
     end
 
-    -- Name + distance
     if Settings.NameESP then
         local displayName = GetPlayerDisplayName(player, character)
-        d.Info.Name.Text = displayName
-        d.Info.Name.Position = Vector2.new(screenCenter3.X, screenCenter3.Y - (size.Y * 4 / Camera.Focus and 10 or 35)) -- fallback offset
-        -- better anchor above the head if possible
         local head = character:FindFirstChild("Head")
         local nameAnchor = head and head.Position + Vector3.new(0, 0.5, 0) or root.Position + Vector3.new(0, size.Y/2 + 0.2, 0)
         local nameScreenV3, nameOn = Camera:WorldToViewportPoint(nameAnchor)
         if nameOn and nameScreenV3.Z > 0 then
             d.Info.Name.Position = Vector2.new(nameScreenV3.X, nameScreenV3.Y - 18)
+        else
+            d.Info.Name.Position = Vector2.new(screenCenter3.X, screenCenter3.Y - 35)
         end
+        d.Info.Name.Text = displayName
         d.Info.Name.Color = color
         d.Info.Name.Size = Settings.TextSize
         d.Info.Name.Font = Settings.TextFont
@@ -662,23 +600,6 @@ local function UpdateESP(player)
         d.Info.Name.Visible = false
     end
 
-    if Settings.ShowDistance then
-        d.Info.Distance.Text = tostring(math.floor(distance)) .. " studs"
-        local distPos = Vector2.new(screenCenter3.X, screenCenter3.Y + (size.Y * 0.5) + 8)
-        local head = character:FindFirstChild("Head")
-        local distAnchor = head and head.Position or root.Position
-        local distScreen, distOn = Camera:WorldToViewportPoint(distAnchor)
-        if distOn and distScreen.Z > 0 then
-            d.Info.Distance.Position = Vector2.new(distScreen.X, distScreen.Y + 12)
-            d.Info.Distance.Visible = true
-        else
-            d.Info.Distance.Visible = false
-        end
-    else
-        d.Info.Distance.Visible = false
-    end
-
-    -- Chams highlight
     if d.Highlight then
         if Settings.ChamsEnabled and character then
             d.Highlight.Parent = character
@@ -692,7 +613,6 @@ local function UpdateESP(player)
         end
     end
 
-    -- Skeleton render (simple attempt using common rig part names)
     if Settings.SkeletonESP then
         local function findAnyCharPart(names)
             for _, n in ipairs(names) do
@@ -724,7 +644,6 @@ local function UpdateESP(player)
             RightFoot = findAnyCharPart({"RightFoot","Right Leg"})
         }
 
-        -- Map a few bone draws
         DrawBoneLine(bones.Head, bones.UpperTorso, d.Skeleton.Head)
         DrawBoneLine(bones.UpperTorso, bones.LowerTorso, d.Skeleton.UpperSpine)
         DrawBoneLine(bones.UpperTorso, bones.LeftUpperArm, d.Skeleton.LeftShoulder)
@@ -744,7 +663,6 @@ local function UpdateESP(player)
     end
 end
 
--- Global disable (hides drawings but does not destroy)
 local function DisableESP()
     for _, player in ipairs(Players:GetPlayers()) do
         local d = Drawings[player]
@@ -757,14 +675,12 @@ local function DisableESP()
             d.Health.Fill.Visible = false
             d.Health.Text.Visible = false
             d.Info.Name.Visible = false
-            d.Info.Distance.Visible = false
             for _, l in pairs(d.Skeleton) do l.Visible = false end
             if d.Highlight then d.Highlight.Enabled = false end
         end
     end
 end
 
--- cleanup (remove all)
 local function CleanupESP()
     for _, player in ipairs(Players:GetPlayers()) do
         RemoveESP(player)
@@ -773,7 +689,6 @@ local function CleanupESP()
     Highlights = {}
 end
 
--- UI (Fluent) - small additions for NameESP and NameMode
 local Window = Fluent:CreateWindow({
     Title = "WA Universal ESP",
     SubTitle = "by WA",
@@ -798,7 +713,6 @@ do
         if not Settings.Enabled then
             DisableESP()
         else
-            -- create for existing players
             for _, player in ipairs(Players:GetPlayers()) do
                 if player ~= LocalPlayer then CreateESP(player) end
             end
@@ -855,7 +769,6 @@ do
 end
 
 do
-    -- colors & performance
     local ColorsSection = Tabs.Settings:AddSection("Colors")
     local EnemyColor = ColorsSection:AddColorpicker("EnemyColor", { Title = "Enemy Color", Default = Colors.Enemy })
     EnemyColor:OnChanged(function(Value) Colors.Enemy = Value end)
@@ -869,7 +782,6 @@ do
     MaxDistance:OnChanged(function(Value) Settings.MaxDistance = Value end)
 end
 
--- Save / Config UI wiring
 SaveManager:SetLibrary(Fluent)
 InterfaceManager:SetLibrary(Fluent)
 SaveManager:IgnoreThemeSettings()
@@ -878,7 +790,6 @@ SaveManager:SetFolder("WAUniversalESP/configs")
 InterfaceManager:BuildInterfaceSection(Tabs.Config)
 SaveManager:BuildConfigSection(Tabs.Config)
 
--- Spawn rainbow updater
 task.spawn(function()
     while task.wait(0.05) do
         if Settings.RainbowEnabled then
@@ -887,7 +798,6 @@ task.spawn(function()
     end
 end)
 
--- Render loop (throttled by Settings.RefreshRate)
 local lastUpdate = 0
 RunService.RenderStepped:Connect(function()
     if not Settings.Enabled then
@@ -905,11 +815,9 @@ RunService.RenderStepped:Connect(function()
     lastUpdate = now
 end)
 
--- Player join/leave handlers
 Players.PlayerAdded:Connect(function(pl) if pl ~= LocalPlayer then CreateESP(pl) end end)
 Players.PlayerRemoving:Connect(function(pl) RemoveESP(pl) end)
 
--- initial
 for _, pl in ipairs(Players:GetPlayers()) do
     if pl ~= LocalPlayer then CreateESP(pl) end
 end
