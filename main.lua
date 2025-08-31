@@ -340,7 +340,7 @@ RunService.RenderStepped:Connect(function()
 			local dist = math.floor((camPos - hrp.Position).Magnitude)
 			if data.Name and Settings.ShowName then
 				data.Name.Text = player.DisplayName or player.Name
-				data.Name.Position = Vector2.new(screenPos.X, screenPos.Y - 35)
+				data.Name.Position = Vector2.new(screenPos.X, screenPos.Y)
 				data.Name.Color = color -- tint name text to player color
 				data.Name.Visible = true
 			elseif data.Name then
@@ -349,7 +349,7 @@ RunService.RenderStepped:Connect(function()
 
 			if data.Distance and Settings.ShowDistance then
 				data.Distance.Text = tostring(dist) .. " studs"
-				data.Distance.Position = Vector2.new(screenPos.X, screenPos.Y - 20)
+				data.Distance.Position = Vector2.new(screenPos.X, screenPos.Y)
 				data.Distance.Visible = true
 			elseif data.Distance then
 				data.Distance.Visible = false
