@@ -313,7 +313,7 @@ RunService.RenderStepped:Connect(function()
 			continue
 		end
 
-		local worldHeadPos = head.Position + Vector3.new(0, 0.5, 0)
+		local worldHeadPos = head.Position + Vector3.new(0, 2.5, 0)
 		local screenPos, onScreen = cam:WorldToViewportPoint(worldHeadPos)
 
 		-- Offscreen remove behavior: if player offscreen and OffscreenRemove true -> clear visuals now
@@ -352,7 +352,7 @@ RunService.RenderStepped:Connect(function()
 			local dist = math.floor((camPos - hrp.Position).Magnitude)
 			if data.Name and Settings.ShowName then
 				data.Name.Text = player.DisplayName or player.Name
-				data.Name.Position = Vector2.new(screenPos.X, screenPos.Y - 50)
+				data.Name.Position = Vector2.new(screenPos.X, screenPos.Y)
 				data.Name.Color = color -- tint name text to player color
 				data.Name.Visible = true
 			elseif data.Name then
