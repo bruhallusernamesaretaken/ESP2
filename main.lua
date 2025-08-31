@@ -138,9 +138,15 @@ RunService.RenderStepped:Connect(function()
 			if onScreen then
 				local dist = math.floor((Camera.CFrame.Position - hrp.Position).Magnitude)
 
-				-- team check (green = teammate, red = enemy)
-				local isTeammate = (player.Team == LocalPlayer.Team)
-				local color = isTeammate and Color3.new(0, 1, 0) or Color3.new(1, 0, 0)
+				-- determine team color
+				local teamCount = #Players:GetTeams()
+				local isTeammate = (player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team)
+				local color
+				if teamCount <= 1 then
+					color = Color3.new(1, 0, 0) -- only one team -> always red
+				else
+					color = isTeammate and Color3.new(0, 1, 0) or Color3.new(1, 0, 0)
+				end
 
 				-- Name ESP
 				data.Name.Text = player.Name
@@ -153,12 +159,14 @@ RunService.RenderStepped:Connect(function()
 				data.Distance.Position = Vector2.new(screenPos.X, screenPos.Y - 5)
 				data.Distance.Visible = true
 
-				-- Box ESP
+				-- Box ESP (better scaling)
 				local hrpPos, hrpOnScreen = Camera:WorldToViewportPoint(hrp.Position)
-				local scaleFactor = 1 / (hrpPos.Z * 0.003) * 100
-				local boxSize = Vector2.new(4 * scaleFactor, 6 * scaleFactor)
-				data.Box.Size = boxSize
-				data.Box.Position = Vector2.new(hrpPos.X - boxSize.X / 2, hrpPos.Y - boxSize.Y / 2)
+				local scaleFactor = 1 / math.max(hrpPos.Z, 1) * 100
+				local boxWidth = 2 * scaleFactor
+				local boxHeight = 3 * scaleFactor
+
+				data.Box.Size = Vector2.new(boxWidth, boxHeight)
+				data.Box.Position = Vector2.new(hrpPos.X - boxWidth / 2, hrpPos.Y - boxHeight / 2)
 				data.Box.Color = color
 				data.Box.Visible = hrpOnScreen
 			else
