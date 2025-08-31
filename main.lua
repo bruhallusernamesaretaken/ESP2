@@ -4,7 +4,7 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
--- Whitelist & Blacklist
+-- Whitelist / Blacklist
 local Whitelist = {}
 local Blacklist = {}
 
@@ -12,14 +12,13 @@ local Blacklist = {}
 local COLORS = {
     Enemy = Color3.fromRGB(255, 0, 0),
     Ally = Color3.fromRGB(0, 255, 0),
-    Skeleton = Color3.fromRGB(255, 255, 255),
-    Text = Color3.fromRGB(255,255,255)
+    Skeleton = Color3.fromRGB(255, 255, 255)
 }
 
 -- ESP container
 local ESPObjects = {}
 
--- Create UI
+-- ===================== UI =====================
 local function CreateUI()
     local ScreenGui = Instance.new("ScreenGui")
     ScreenGui.Name = "ESPWhitelistUI"
@@ -89,35 +88,33 @@ end
 
 CreateUI()
 
--- Helper: Create Drawing objects
-local function createLine()
-    local line = Drawing.new("Line")
-    line.Color = COLORS.Skeleton
-    line.Thickness = 2
-    line.Visible = false
-    return line
-end
-
+-- ===================== Drawing helpers =====================
 local function createBox()
     local box = Drawing.new("Square")
     box.Thickness = 2
     box.Filled = false
-    box.Visible = false
+    box.Visible = true
     return box
 end
 
 local function createText(size)
     local text = Drawing.new("Text")
-    text.Text = ""
     text.Size = size
     text.Center = true
     text.Outline = true
-    text.Color = COLORS.Text
-    text.Visible = false
+    text.Visible = true
     return text
 end
 
--- Bone pairs for skeleton
+local function createLine()
+    local line = Drawing.new("Line")
+    line.Thickness = 2
+    line.Color = COLORS.Skeleton
+    line.Visible = true
+    return line
+end
+
+-- ===================== Skeleton bones =====================
 local R15Bones = {
     {"Head","UpperTorso"}, {"UpperTorso","LowerTorso"},
     {"UpperTorso","LeftUpperArm"}, {"LeftUpperArm","LeftLowerArm"}, {"LeftLowerArm","LeftHand"},
@@ -126,26 +123,25 @@ local R15Bones = {
     {"LowerTorso","RightUpperLeg"}, {"RightUpperLeg","RightLowerLeg"}, {"RightLowerLeg","RightFoot"}
 }
 
--- Setup ESP for a player
+-- ===================== ESP Setup =====================
 local function setupESP(player)
     if player == LocalPlayer then return end
 
-    local function onChar(char)
+    local function onCharacter(char)
         local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if not humanoid then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not (humanoid and hrp) then return end
 
         local box = createBox()
         local nameTag = createText(14)
         local distanceTag = createText(13)
-
         local skeleton = {}
         for _, pair in ipairs(R15Bones) do
             skeleton[pair[1].."_"..pair[2]] = createLine()
         end
 
-        ESPObjects[player] = {Box=box, Skeleton=skeleton, Character=char, Name=nameTag, Distance=distanceTag}
+        ESPObjects[player] = {Box=box, Name=nameTag, Distance=distanceTag, Skeleton=skeleton, Character=char}
 
-        -- Remove ESP on death
         humanoid.Died:Connect(function()
             box:Remove()
             nameTag:Remove()
@@ -158,18 +154,17 @@ local function setupESP(player)
     end
 
     if player.Character then
-        onChar(player.Character)
+        onCharacter(player.Character)
     end
-    player.CharacterAdded:Connect(onChar)
+    player.CharacterAdded:Connect(onCharacter)
 end
 
--- Add ESP for all players
 for _, p in ipairs(Players:GetPlayers()) do
     setupESP(p)
 end
 Players.PlayerAdded:Connect(setupESP)
 
--- Update ESP each frame
+-- ===================== ESP Update =====================
 RunService.RenderStepped:Connect(function()
     for player, data in pairs(ESPObjects) do
         local char = data.Character
@@ -178,32 +173,28 @@ RunService.RenderStepped:Connect(function()
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if not (humanoid and hrp) then continue end
 
-        -- Box ESP scaling
-        local topPos = hrp.Position + Vector3.new(0, humanoid.HipHeight+2,0)
-        local bottomPos = hrp.Position - Vector3.new(0,2,0)
-        local top, on1 = Camera:WorldToViewportPoint(topPos)
-        local bottom, on2 = Camera:WorldToViewportPoint(bottomPos)
+        -- ================= Box ESP =================
+        local topPos3D = hrp.Position + Vector3.new(0, humanoid.HipHeight + 2, 0)
+        local bottomPos3D = hrp.Position - Vector3.new(0, 2, 0)
+        local leftPos3D = hrp.Position - hrp.CFrame.RightVector * 1
+        local rightPos3D = hrp.Position + hrp.CFrame.RightVector * 1
+
+        local top, onTop = Camera:WorldToViewportPoint(topPos3D)
+        local bottom, onBottom = Camera:WorldToViewportPoint(bottomPos3D)
+        local left, onLeft = Camera:WorldToViewportPoint(leftPos3D)
+        local right, onRight = Camera:WorldToViewportPoint(rightPos3D)
+
         local box = data.Box
         local nameTag = data.Name
         local distanceTag = data.Distance
 
-        if on1 and on2 then
+        if onTop and onBottom and onLeft and onRight then
             local height = math.abs(top.Y - bottom.Y)
-            local width = height/2
-            box.Size = Vector2.new(width,height)
-            box.Position = Vector2.new(top.X-width/2, top.Y)
+            local width = math.abs(right.X - left.X)
 
-            -- Name & distance
-            nameTag.Text = player.Name
-            nameTag.Position = Vector2.new(top.X, top.Y-20)
-            nameTag.Visible = true
+            box.Size = Vector2.new(width, height)
+            box.Position = Vector2.new(left.X, top.Y)
 
-            local dist = math.floor((Camera.CFrame.Position - hrp.Position).Magnitude)
-            distanceTag.Text = dist.." studs"
-            distanceTag.Position = Vector2.new(top.X, top.Y-5)
-            distanceTag.Visible = true
-
-            -- Color logic
             local color = COLORS.Enemy
             if Whitelist[player.Name] then
                 color = COLORS.Ally
@@ -213,13 +204,25 @@ RunService.RenderStepped:Connect(function()
                 color = COLORS.Ally
             end
             box.Color = color
+
+            -- Name & Distance
+            nameTag.Text = player.Name
+            nameTag.Position = Vector2.new(top.X, top.Y - 20)
+            nameTag.Color = color
+            nameTag.Visible = true
+
+            local distance = math.floor((Camera.CFrame.Position - hrp.Position).Magnitude)
+            distanceTag.Text = distance.." studs"
+            distanceTag.Position = Vector2.new(top.X, top.Y - 5)
+            distanceTag.Color = color
+            distanceTag.Visible = true
         else
             box.Visible = false
             nameTag.Visible = false
             distanceTag.Visible = false
         end
 
-        -- Skeleton ESP
+        -- ================= Skeleton ESP =================
         for _, pair in ipairs(R15Bones) do
             local part1 = char:FindFirstChild(pair[1])
             local part2 = char:FindFirstChild(pair[2])
