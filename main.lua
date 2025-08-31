@@ -1,6 +1,3 @@
--- Improved ESP (LocalScript)
--- Put in StarterPlayerScripts
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
