@@ -512,11 +512,11 @@ local function UpdateESP(player)
         if esp.Tracer then esp.Tracer.Visible = false end
     end
 
-    -- Health: ALWAYS show bar (per request).
+    -- Health: show bar only for "Bar" or "Both". "Text" shows text only (centered).
     if esp.HealthBar then
         local health = humanoid.Health
         local maxHealth = humanoid.MaxHealth
-        local healthPercent = math.clamp( (health / (maxHealth > 0 and maxHealth or 1)), 0, 1)
+        local healthPercent = math.clamp((health / (maxHealth > 0 and maxHealth or 1)), 0, 1)
 
         local barHeight = screenSize * 0.8
         local barWidth = 6
@@ -524,25 +524,33 @@ local function UpdateESP(player)
             boxPosition.X - barWidth - 4,
             boxPosition.Y + (screenSize - barHeight)/2
         )
-
-        -- Outline (background)
-        esp.HealthBar.Outline.Size = Vector2.new(barWidth, barHeight)
-        esp.HealthBar.Outline.Position = barPos
-        esp.HealthBar.Outline.Visible = true
-        esp.HealthBar.Outline.Color = Color3.new(0,0,0)
-
-        -- Fill (dynamic)
-        esp.HealthBar.Fill.Size = Vector2.new(barWidth - 2, barHeight * healthPercent)
-        esp.HealthBar.Fill.Position = Vector2.new(barPos.X + 1, barPos.Y + barHeight * (1 - healthPercent))
-        esp.HealthBar.Fill.Color = Color3.fromRGB(
-            math.clamp(255 - (255 * healthPercent), 0, 255),
-            math.clamp(255 * healthPercent, 0, 255),
-            0
-        )
-        esp.HealthBar.Fill.Visible = true
-
-        -- Text: when "Text" or "Both" -> show text offset to the right of the bar.
-        if Settings.HealthStyle == "Text" or Settings.HealthStyle == "Both" then
+    
+        -- Determine which parts should be visible based on HealthStyle
+        local showBar = (Settings.HealthStyle == "Bar" or Settings.HealthStyle == "Both")
+        local showText = (Settings.HealthStyle == "Text" or Settings.HealthStyle == "Both")
+    
+        -- Outline (background) - only for bar
+        esp.HealthBar.Outline.Visible = showBar
+        if showBar then
+            esp.HealthBar.Outline.Size = Vector2.new(barWidth, barHeight)
+            esp.HealthBar.Outline.Position = barPos
+            esp.HealthBar.Outline.Color = Color3.new(0,0,0)
+        end
+    
+        -- Fill (dynamic) - only for bar
+        esp.HealthBar.Fill.Visible = showBar
+        if showBar then
+            esp.HealthBar.Fill.Size = Vector2.new(barWidth - 2, barHeight * healthPercent)
+            esp.HealthBar.Fill.Position = Vector2.new(barPos.X + 1, barPos.Y + barHeight * (1 - healthPercent))
+            esp.HealthBar.Fill.Color = Color3.fromRGB(
+                math.clamp(255 - (255 * healthPercent), 0, 255),
+                math.clamp(255 * healthPercent, 0, 255),
+                0
+            )
+        end
+    
+        -- Text handling
+        if showText then
             local textStr
             if Settings.HealthTextFormat == "Percentage" then
                 textStr = math.floor(healthPercent * 100) .. "%" .. (Settings.HealthTextSuffix or "")
@@ -551,16 +559,26 @@ local function UpdateESP(player)
             else -- "Number" or default
                 textStr = math.floor(health) .. (Settings.HealthTextSuffix or "")
             end
-
+    
             esp.HealthBar.Text.Text = textStr
-            -- offset to the right of bar
-            esp.HealthBar.Text.Position = Vector2.new(barPos.X + barWidth + 6, barPos.Y + (barHeight/2) - (esp.HealthBar.Text.Size/2))
-            esp.HealthBar.Text.Color = Colors.Health
-            esp.HealthBar.Text.Visible = true
-        else
-            esp.HealthBar.Text.Visible = false
+
+            if Settings.HealthStyle == "Both" then
+                -- offset to the right of the bar when showing both
+                esp.HealthBar.Text.Center = false
+                esp.HealthBar.Text.Position = Vector2.new(barPos.X + barWidth + 6, barPos.Y + (barHeight/2) - (esp.HealthBar.Text.Size/2))
+            else
+                -- Center text (when Text only)
+                esp.HealthBar.Text.Center = true
+                esp.HealthBar.Text.Position = Vector2.new(boxPosition.X + boxWidth/2, boxPosition.Y + (boxSize.Y / 2) - (esp.HealthBar.Text.Size/2))
+            end
+    
+                esp.HealthBar.Text.Color = Colors.Health
+                esp.HealthBar.Text.Visible = true
+            else
+                esp.HealthBar.Text.Visible = false
+            end
         end
-    end
+    end    
 
     -- Name
     if Settings.NameESP and esp.Info and esp.Info.Name then
