@@ -139,9 +139,9 @@ local R15Bones = {
 -- ===================== ESP Setup =====================
 function setupESP(player)
     if player == LocalPlayer then return end
-    if ESPObjects[player] then return end -- prevent duplicates
 
-    local function onCharacter(char)
+    -- Connect to CharacterAdded every time
+    player.CharacterAdded:Connect(function(char)
         -- Remove old ESP if it exists
         if ESPObjects[player] then
             local old = ESPObjects[player]
@@ -153,7 +153,11 @@ function setupESP(player)
             ESPObjects[player] = nil
         end
 
+        -- Create new ESP
         local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if not humanoid then
+            humanoid = char:WaitForChild("Humanoid", 5)
+        end
         if not humanoid then return end
 
         local nameTag = createText(14)
@@ -176,21 +180,20 @@ function setupESP(player)
                 ESPObjects[player] = nil
             end
         end)
-    end
+    end)
 
-    -- Connect to CharacterAdded to handle resets
-    player.CharacterAdded:Connect(onCharacter)
+    -- Also handle the current character if it exists
     if player.Character then
-        onCharacter(player.Character)
+        player.CharacterAdded:Wait() -- ensure CharacterAdded fires
     end
 end
 
--- Setup ESP for all existing players
+-- Apply to all players
 for _, p in ipairs(Players:GetPlayers()) do
     setupESP(p)
 end
 
--- Setup ESP for new players joining
+-- For new players joining
 Players.PlayerAdded:Connect(setupESP)
 Players.PlayerRemoving:Connect(function(player)
     if ESPObjects[player] then
@@ -205,7 +208,7 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 -- ===================== ESP Update =====================
-local MAX_DISTANCE = 1000
+local MAX_DISTANCE = 250 -- studs
 
 RunService.RenderStepped:Connect(function()
     local origin = Camera.CFrame.Position
@@ -213,6 +216,7 @@ RunService.RenderStepped:Connect(function()
     for player, data in pairs(ESPObjects) do
         local char = data.Character
         if not char or not char.Parent then
+            -- Remove ESP if character is gone
             data.Name:Remove()
             data.Distance:Remove()
             for _, line in pairs(data.Skeleton) do
@@ -229,7 +233,6 @@ RunService.RenderStepped:Connect(function()
         -- Distance check
         local distance = (hrp.Position - origin).Magnitude
         if distance > MAX_DISTANCE then
-            -- Hide ESP if too far
             data.Name.Visible = false
             data.Distance.Visible = false
             for _, line in pairs(data.Skeleton) do
@@ -257,8 +260,8 @@ RunService.RenderStepped:Connect(function()
                 local p1, on1 = Camera:WorldToViewportPoint(part1.Position)
                 local p2, on2 = Camera:WorldToViewportPoint(part2.Position)
                 if on1 and on2 then
-                    line.From = Vector2.new(p1.X,p1.Y)
-                    line.To = Vector2.new(p2.X,p2.Y)
+                    line.From = Vector2.new(p1.X, p1.Y)
+                    line.To = Vector2.new(p2.X, p2.Y)
                     line.Visible = true
                     line.Color = COLORS.Skeleton
                 else
