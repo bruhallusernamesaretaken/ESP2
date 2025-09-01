@@ -326,7 +326,7 @@ RunService.RenderStepped:Connect(function()
             if data.Equipped then
                 local toolName = getEquippedToolName(player, char) or "None"
                 data.Equipped.Text = "Holding: " .. (toolName ~= "" and toolName or "None")
-                data.Equipped.Position = Vector2.new(headPos.X, headPos.Y + 6)
+                data.Equipped.Position = Vector2.new(headPos.X, headPos.Y - 38)
                 data.Equipped.Color = COLORS.TextGray
                 data.Equipped.Visible = true
             end
@@ -432,14 +432,6 @@ local function CreateUI()
     ToggleESP.Parent = Frame
 
     -- Max distance
-    local DistanceLabel = Instance.new("TextLabel")
-    DistanceLabel.Size = UDim2.new(1,-20,0,28)
-    DistanceLabel.Position = UDim2.new(0,10,0,202)
-    DistanceLabel.BackgroundColor3 = Color3.fromRGB(50,50,50)
-    DistanceLabel.TextColor3 = Color3.fromRGB(255,255,255)
-    DistanceLabel.Text = "Max Distance: "..MAX_DISTANCE
-    DistanceLabel.TextScaled = true
-    DistanceLabel.Parent = Frame
 
     local DistanceBox = Instance.new("TextBox")
     DistanceBox.Size = UDim2.new(1,-20,0,30)
@@ -485,7 +477,6 @@ local function CreateUI()
         local value = tonumber(DistanceBox.Text)
         if value and value > 0 then
             MAX_DISTANCE = value
-            DistanceLabel.Text = "Max Distance: "..MAX_DISTANCE
         else
             DistanceBox.Text = tostring(MAX_DISTANCE)
         end
