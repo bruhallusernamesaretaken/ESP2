@@ -194,7 +194,7 @@ RunService.RenderStepped:Connect(function()
 
             data.Distance.Text = math.floor(distance).." studs"
             data.Distance.Position = Vector2.new(headPos.X, headPos.Y-5)
-            data.Distance.Color = color
+            data.Distance.Color = Color3.fromRGB(180, 180, 180)
             data.Distance.Visible = true
 
             -- Equipped tool
@@ -210,7 +210,7 @@ RunService.RenderStepped:Connect(function()
             end
             data.Equipped.Text = toolName
             data.Equipped.Position = Vector2.new(headPos.X, headPos.Y+10)
-            data.Equipped.Color = color
+            data.Equipped.Color = Color3.fromRGB(180, 180, 180)
             data.Equipped.Visible = true
         else
             data.Name.Visible = false
