@@ -302,16 +302,25 @@ local function CreateUI()
     end)
 
     RefreshButton.MouseButton1Click:Connect(function()
+        -- Remove all existing ESP drawings
         for player, data in pairs(ESPObjects) do
             if data.Name then data.Name:Remove() end
             if data.Distance then data.Distance:Remove() end
-            for _, line in pairs(data.Skeleton or {}) do line:Remove() end
+            if data.Skeleton then
+                for _, line in pairs(data.Skeleton) do
+                    if line then line:Remove() end
+                end
+            end
         end
+    
+        -- Clear ESPObjects completely
         ESPObjects = {}
+    
+        -- Recreate ESP for all players
         for _, p in ipairs(Players:GetPlayers()) do
             setupESP(p)
         end
-    end)
+    end)    
 
     ToggleESPButton.MouseButton1Click:Connect(function()
         ESPEnabled = not ESPEnabled
