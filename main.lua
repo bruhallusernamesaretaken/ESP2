@@ -1,3 +1,5 @@
+-- Drawing-only ESP (works with Drawing enabled executors like Solara v3)
+
 -- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -15,12 +17,14 @@ local COLORS = {
     Enemy = Color3.fromRGB(255, 0, 0),
     Ally = Color3.fromRGB(0, 255, 0),
     Skeleton = Color3.fromRGB(255, 255, 255),
-    Text = Color3.fromRGB(180,180,180)
+    TextGray = Color3.fromRGB(180,180,180)
 }
 
-local ESPObjects = {}
+-- Storage
+local ESPObjects = {}   -- { [player] = { Character=..., Name=Drawing, Distance=Drawing, Equipped=Drawing, Skeleton={}, BonePairs={}, ... } }
+local ESPConns = {}     -- { [player] = { charAdded, died, charChildAdded, charChildRemoved, backpackAdded, backpackRemoved } }
 
--- Bone definitions
+-- Bone sets
 local R15Bones = {
     {"Head","UpperTorso"},{"UpperTorso","LowerTorso"},
     {"UpperTorso","LeftUpperArm"},{"LeftUpperArm","LeftLowerArm"},{"LeftLowerArm","LeftHand"},
@@ -28,94 +32,113 @@ local R15Bones = {
     {"LowerTorso","LeftUpperLeg"},{"LeftUpperLeg","LeftLowerLeg"},{"LeftLowerLeg","LeftFoot"},
     {"LowerTorso","RightUpperLeg"},{"RightUpperLeg","RightLowerLeg"},{"RightLowerLeg","RightFoot"}
 }
-
 local R6Bones = {
     {"Head","Torso"},
     {"Torso","Left Arm"},{"Left Arm","Left Leg"},
     {"Torso","Right Arm"},{"Right Arm","Right Leg"}
 }
 
--- ===================== Drawing Helpers =====================
+-- Safe Drawing creators
 local function createText(size)
-    local ok, text = pcall(function() return Drawing.new("Text") end)
-    if not ok then return nil end
-    text.Size = size
-    text.Center = true
-    text.Outline = true
-    text.Visible = false
-    return text
+    local ok, obj = pcall(function() return Drawing.new("Text") end)
+    if not ok or not obj then return nil end
+    obj.Size = size
+    obj.Center = true
+    obj.Outline = true
+    obj.Visible = false
+    return obj
 end
 
 local function createLine()
-    local ok, line = pcall(function() return Drawing.new("Line") end)
-    if not ok then return nil end
-    line.Thickness = 2
-    line.Color = COLORS.Skeleton
-    line.Visible = false
-    return line
+    local ok, obj = pcall(function() return Drawing.new("Line") end)
+    if not ok or not obj then return nil end
+    obj.Thickness = 2
+    obj.Color = COLORS.Skeleton
+    obj.Visible = false
+    return obj
 end
 
--- Helper: reliable equipped tool detection (checks character then backpack)
+local function safeRemove(obj)
+    if not obj then return end
+    pcall(function() obj:Remove() end)
+end
+
+-- Reliable tool name detection (character first, then humanoid child, then backpack)
 local function getEquippedToolName(player, char)
     if char and char.Parent then
-        -- Prefer tool parented to character (equipped)
-        local t = char:FindFirstChildWhichIsA("Tool", true)
-        if t and t:IsA("Tool") then return t.Name end
-        -- fallback to FindFirstChildOfClass
-        local t2 = char:FindFirstChildOfClass("Tool")
-        if t2 then return t2.Name end
+        local ok1, t1 = pcall(function() return char:FindFirstChildWhichIsA("Tool", true) end)
+        if ok1 and t1 and t1:IsA("Tool") then return t1.Name end
+        local ok2, t2 = pcall(function() return char:FindFirstChildOfClass("Tool") end)
+        if ok2 and t2 then return t2.Name end
     end
 
-    -- check humanoid's child (some setups)
     if char then
         local humanoid = char:FindFirstChildOfClass("Humanoid")
         if humanoid then
-            local ht = humanoid:FindFirstChildOfClass("Tool")
-            if ht then return ht.Name end
+            local ok3, ht = pcall(function() return humanoid:FindFirstChildOfClass("Tool") end)
+            if ok3 and ht then return ht.Name end
         end
     end
 
-    -- finally check backpack (unequipped)
     local backpack = player:FindFirstChild("Backpack")
     if backpack then
-        local btool = backpack:FindFirstChildWhichIsA and backpack:FindFirstChildWhichIsA("Tool", true)
-        if btool and btool:IsA("Tool") then return btool.Name end
-        local btool2 = backpack:FindFirstChildOfClass("Tool")
-        if btool2 then return btool2.Name end
+        local ok4, bt = pcall(function() return backpack:FindFirstChildWhichIsA("Tool", true) end)
+        if ok4 and bt and bt:IsA("Tool") then return bt.Name end
+        local ok5, bt2 = pcall(function() return backpack:FindFirstChildOfClass("Tool") end)
+        if ok5 and bt2 then return bt2.Name end
     end
 
     return "None"
 end
 
--- ===================== ESP Setup =====================
+-- Cleanup per player: drawings + disconnects
 local function cleanupESPForPlayer(player)
     local old = ESPObjects[player]
-    if not old then return end
-    if old.Name then pcall(function() old.Name:Remove() end) end
-    if old.Distance then pcall(function() old.Distance:Remove() end) end
-    if old.Equipped then pcall(function() old.Equipped:Remove() end) end
-    for _, line in pairs(old.Skeleton or {}) do
-        if line then pcall(function() line:Remove() end) end
+    if old then
+        safeRemove(old.Name)
+        safeRemove(old.Distance)
+        safeRemove(old.Equipped)
+        for _, ln in pairs(old.Skeleton or {}) do safeRemove(ln) end
+        ESPObjects[player] = nil
     end
-    ESPObjects[player] = nil
+
+    local c = ESPConns[player]
+    if c then
+        if c.charConn and type(c.charConn.Disconnect) == "function" then pcall(function() c.charConn:Disconnect() end) end
+        if c.diedConn and type(c.diedConn.Disconnect) == "function" then pcall(function() c.diedConn:Disconnect() end) end
+        if c.charChildAdded and type(c.charChildAdded.Disconnect) == "function" then pcall(function() c.charChildAdded:Disconnect() end) end
+        if c.charChildRemoved and type(c.charChildRemoved.Disconnect) == "function" then pcall(function() c.charChildRemoved:Disconnect() end) end
+        if c.backpackAdded and type(c.backpackAdded.Disconnect) == "function" then pcall(function() c.backpackAdded:Disconnect() end) end
+        if c.backpackRemoved and type(c.backpackRemoved.Disconnect) == "function" then pcall(function() c.backpackRemoved:Disconnect() end) end
+        ESPConns[player] = nil
+    end
 end
 
+-- Setup ESP for a player (handles character added)
 local function setupESP(player)
-    if player == LocalPlayer then return end
+    if not player or player == LocalPlayer then return end
+
+    -- disconnect existing charConn if present (prevents duplicates)
+    if ESPConns[player] and ESPConns[player].charConn then
+        pcall(function() ESPConns[player].charConn:Disconnect() end)
+        ESPConns[player] = nil
+    end
+    ESPConns[player] = {}
 
     local function onCharacterAdded(char)
-        -- clean previous if any
+        -- Clean previous data (drawings + conns)
         cleanupESPForPlayer(player)
 
+        if not char or not char.Parent then return end
         local humanoid = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
         if not humanoid then return end
 
+        -- create drawings
         local nameTag = createText(14)
-        local distanceTag = createText(13)
+        local distTag = createText(13)
         local equippedTag = createText(13)
 
-        -- select bones set
-        local bonePairs = humanoid.RigType == Enum.HumanoidRigType.R15 and R15Bones or R6Bones
+        local bonePairs = (humanoid.RigType == Enum.HumanoidRigType.R15) and R15Bones or R6Bones
         local skeleton = {}
         for _, pair in ipairs(bonePairs) do
             skeleton[pair[1].."_"..pair[2]] = createLine()
@@ -124,44 +147,102 @@ local function setupESP(player)
         ESPObjects[player] = {
             Character = char,
             Name = nameTag,
-            Distance = distanceTag,
+            Distance = distTag,
             Equipped = equippedTag,
             Skeleton = skeleton,
             BonePairs = bonePairs
         }
 
-        -- ensure cleanup on death
-        humanoid.Died:Connect(function()
+        -- died connection
+        local diedConn = humanoid.Died:Connect(function()
             cleanupESPForPlayer(player)
         end)
+
+        -- child added/removed on character to update equipped immediately
+        local charChildAdded = char.ChildAdded:Connect(function(child)
+            if child:IsA("Tool") then
+                local data = ESPObjects[player]
+                if data and data.Equipped and data.Character == char then
+                    -- immediate update (frame loop also updates)
+                    data.Equipped.Text = "Holding: " .. (child.Name or "None")
+                end
+            end
+        end)
+        local charChildRemoved = char.ChildRemoved:Connect(function(child)
+            if child:IsA("Tool") then
+                local data = ESPObjects[player]
+                if data and data.Equipped and data.Character == char then
+                    -- will be recomputed next frame; set to None briefly
+                    data.Equipped.Text = "Holding: None"
+                end
+            end
+        end)
+
+        -- backpack child events (tools moved between backpack/char)
+        local backpack = player:FindFirstChild("Backpack")
+        local backpackAdded, backpackRemoved
+        if backpack then
+            backpackAdded = backpack.ChildAdded:Connect(function(child)
+                if child:IsA("Tool") then
+                    local data = ESPObjects[player]
+                    if data and data.Equipped then
+                        -- no guarantee it is equipped; per-frame will resolve
+                        data.Equipped.Text = "Holding: " .. child.Name
+                    end
+                end
+            end)
+            backpackRemoved = backpack.ChildRemoved:Connect(function(child)
+                if child:IsA("Tool") then
+                    local data = ESPObjects[player]
+                    if data and data.Equipped then
+                        data.Equipped.Text = "Holding: None"
+                    end
+                end
+            end)
+        end
+
+        ESPConns[player] = {
+            charConn = ESPConns[player].charConn, -- preserved (set below)
+            diedConn = diedConn,
+            charChildAdded = charChildAdded,
+            charChildRemoved = charChildRemoved,
+            backpackAdded = backpackAdded,
+            backpackRemoved = backpackRemoved
+        }
+
+        -- immediate equipped fill
+        if ESPObjects[player] and ESPObjects[player].Equipped then
+            local toolName = getEquippedToolName(player, char) or "None"
+            ESPObjects[player].Equipped.Text = "Holding: " .. (toolName ~= "" and toolName or "None")
+        end
     end
 
-    player.CharacterAdded:Connect(onCharacterAdded)
-    if player.Character then
-        onCharacterAdded(player.Character)
+    -- connect CharacterAdded (store conn)
+    local charConn = player.CharacterAdded:Connect(onCharacterAdded)
+    ESPConns[player].charConn = charConn
+
+    -- if character exists now, call handler
+    if player.Character and player.Character.Parent then
+        pcall(function() onCharacterAdded(player.Character) end)
     end
 end
 
--- Initialize ESP for existing players and connect events
-for _, p in ipairs(Players:GetPlayers()) do
-    setupESP(p)
-end
+-- initialize existing players
+for _, p in ipairs(Players:GetPlayers()) do setupESP(p) end
 Players.PlayerAdded:Connect(setupESP)
-Players.PlayerRemoving:Connect(function(player)
-    cleanupESPForPlayer(player)
-end)
+Players.PlayerRemoving:Connect(function(player) cleanupESPForPlayer(player) end)
 
--- ===================== ESP Update (per-frame, reliable tool detection) =====================
+-- Frame update: draws skeleton, name, distance, equipped (per-frame tool recompute for reliability)
 RunService.RenderStepped:Connect(function()
     local camPos = Camera.CFrame.Position
 
     for player, data in pairs(ESPObjects) do
+        -- quick hide when disabled
         if not ESPEnabled then
-            -- keep them hidden quickly
             if data.Name then data.Name.Visible = false end
             if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
-            for _, ln in pairs(data.Skeleton) do if ln then ln.Visible = false end end
+            for _, ln in pairs(data.Skeleton or {}) do if ln then ln.Visible = false end end
             continue
         end
 
@@ -175,11 +256,10 @@ RunService.RenderStepped:Connect(function()
         local head = char:FindFirstChild("Head")
         local humanoid = char:FindFirstChildOfClass("Humanoid")
         if not (hrp and head and humanoid) then
-            -- keep hidden until character fully loaded
             if data.Name then data.Name.Visible = false end
             if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
-            for _, ln in pairs(data.Skeleton) do if ln then ln.Visible = false end end
+            for _, ln in pairs(data.Skeleton or {}) do if ln then ln.Visible = false end end
             continue
         end
 
@@ -188,11 +268,11 @@ RunService.RenderStepped:Connect(function()
             if data.Name then data.Name.Visible = false end
             if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
-            for _, ln in pairs(data.Skeleton) do if ln then ln.Visible = false end end
+            for _, ln in pairs(data.Skeleton or {}) do if ln then ln.Visible = false end end
             continue
         end
 
-        -- color logic (whitelist overrides everything)
+        -- color logic (whitelist overrides)
         local color = COLORS.Enemy
         if Whitelist[player.Name] then
             color = COLORS.Ally
@@ -202,14 +282,14 @@ RunService.RenderStepped:Connect(function()
             color = COLORS.Ally
         end
 
-        -- skeleton (only show if both points are on screen)
+        -- skeleton
         for _, pair in ipairs(data.BonePairs) do
-            local part1 = char:FindFirstChild(pair[1])
-            local part2 = char:FindFirstChild(pair[2])
+            local p1part = char:FindFirstChild(pair[1])
+            local p2part = char:FindFirstChild(pair[2])
             local ln = data.Skeleton[pair[1].."_"..pair[2]]
-            if part1 and part2 and ln then
-                local p1, on1 = Camera:WorldToViewportPoint(part1.Position)
-                local p2, on2 = Camera:WorldToViewportPoint(part2.Position)
+            if p1part and p2part and ln then
+                local p1, on1 = Camera:WorldToViewportPoint(p1part.Position)
+                local p2, on2 = Camera:WorldToViewportPoint(p2part.Position)
                 if on1 and on2 then
                     ln.From = Vector2.new(p1.X, p1.Y)
                     ln.To = Vector2.new(p2.X, p2.Y)
@@ -223,10 +303,10 @@ RunService.RenderStepped:Connect(function()
             end
         end
 
-        -- UI texts: only when head is on screen
+        -- texts (head on-screen)
         local headPos, onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
         if onScreen then
-            -- Name
+            -- name
             if data.Name then
                 data.Name.Text = player.Name
                 data.Name.Position = Vector2.new(headPos.X, headPos.Y - 28)
@@ -234,20 +314,20 @@ RunService.RenderStepped:Connect(function()
                 data.Name.Visible = true
             end
 
-            -- Distance
+            -- distance
             if data.Distance then
-                data.Distance.Text = math.floor(distance).." studs"
+                data.Distance.Text = math.floor(distance) .. " studs"
                 data.Distance.Position = Vector2.new(headPos.X, headPos.Y - 12)
-                data.Distance.Color = COLORS.Text
+                data.Distance.Color = COLORS.TextGray
                 data.Distance.Visible = true
             end
 
-            -- Equipped tool (recompute every frame for reliability)
+            -- equipped (recompute every frame for reliability)
             if data.Equipped then
                 local toolName = getEquippedToolName(player, char) or "None"
-                data.Equipped.Text = (toolName ~= "" and toolName or "None")
+                data.Equipped.Text = "Holding: " .. (toolName ~= "" and toolName or "None")
                 data.Equipped.Position = Vector2.new(headPos.X, headPos.Y + 6)
-                data.Equipped.Color = COLORS.Text
+                data.Equipped.Color = COLORS.TextGray
                 data.Equipped.Visible = true
             end
         else
@@ -258,7 +338,7 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- ===================== UI =====================
+-- UI: Whitelist/Blacklist/Refresh/Toggle/MaxDistance (draggable)
 local function CreateUI()
     local ScreenGui = Instance.new("ScreenGui")
     ScreenGui.Name = "ESPWhitelistUI"
@@ -307,7 +387,7 @@ local function CreateUI()
     Title.TextColor3 = Color3.fromRGB(255,255,255)
     Title.Parent = Frame
 
-    -- Input
+    -- Input box
     local InputBox = Instance.new("TextBox")
     InputBox.Size = UDim2.new(1,-20,0,30)
     InputBox.Position = UDim2.new(0,10,0,42)
@@ -317,7 +397,7 @@ local function CreateUI()
     InputBox.ClearTextOnFocus = false
     InputBox.Parent = Frame
 
-    -- Whitelist / Blacklist buttons
+    -- Buttons
     local WLButton = Instance.new("TextButton")
     WLButton.Size = UDim2.new(0.5,-15,0,30)
     WLButton.Position = UDim2.new(0,10,0,82)
@@ -334,7 +414,7 @@ local function CreateUI()
     BLButton.BackgroundColor3 = Color3.fromRGB(128,0,0)
     BLButton.Parent = Frame
 
-    -- Refresh
+    -- Refresh / Toggle
     local RefreshButton = Instance.new("TextButton")
     RefreshButton.Size = UDim2.new(1,-20,0,30)
     RefreshButton.Position = UDim2.new(0,10,0,122)
@@ -343,7 +423,6 @@ local function CreateUI()
     RefreshButton.BackgroundColor3 = Color3.fromRGB(50,50,150)
     RefreshButton.Parent = Frame
 
-    -- Toggle ESP
     local ToggleESP = Instance.new("TextButton")
     ToggleESP.Size = UDim2.new(1,-20,0,30)
     ToggleESP.Position = UDim2.new(0,10,0,162)
@@ -372,32 +451,23 @@ local function CreateUI()
     DistanceBox.ClearTextOnFocus = false
     DistanceBox.Parent = Frame
 
-    -- Button logic
+    -- Buttons logic
     WLButton.MouseButton1Click:Connect(function()
         local name = InputBox.Text
-        if name ~= "" then
-            Whitelist[name] = true
-            Blacklist[name] = nil
-        end
+        if name ~= "" then Whitelist[name] = true Blacklist[name] = nil end
     end)
     BLButton.MouseButton1Click:Connect(function()
         local name = InputBox.Text
-        if name ~= "" then
-            Blacklist[name] = true
-            Whitelist[name] = nil
-        end
+        if name ~= "" then Blacklist[name] = true Whitelist[name] = nil end
     end)
+
     RefreshButton.MouseButton1Click:Connect(function()
-        -- fully remove existing drawings & clear table
-        for player, data in pairs(ESPObjects) do
-            cleanupESPForPlayer(player)
-        end
+        -- cleanup drawings + conns and recreate
+        for player, _ in pairs(ESPObjects) do cleanupESPForPlayer(player) end
         ESPObjects = {}
-        -- recreate for all players
-        for _, p in ipairs(Players:GetPlayers()) do
-            setupESP(p)
-        end
+        for _, p in ipairs(Players:GetPlayers()) do setupESP(p) end
     end)
+
     ToggleESP.MouseButton1Click:Connect(function()
         ESPEnabled = not ESPEnabled
         ToggleESP.Text = ESPEnabled and "Toggle ESP (On)" or "Toggle ESP (Off)"
@@ -406,12 +476,11 @@ local function CreateUI()
                 if data.Name then data.Name.Visible = false end
                 if data.Distance then data.Distance.Visible = false end
                 if data.Equipped then data.Equipped.Visible = false end
-                for _, ln in pairs(data.Skeleton or {}) do
-                    if ln then ln.Visible = false end
-                end
+                for _, ln in pairs(data.Skeleton or {}) do if ln then ln.Visible = false end end
             end
         end
     end)
+
     DistanceBox.FocusLost:Connect(function()
         local value = tonumber(DistanceBox.Text)
         if value and value > 0 then
