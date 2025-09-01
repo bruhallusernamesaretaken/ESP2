@@ -53,51 +53,6 @@ local function createLine()
     return line
 end
 
--- Helper to get equipped tool name (reliable)
-local function updateTool()
-    local tool = nil
-    if Character then
-        tool = Character:FindFirstChildOfClass("Tool")
-    end
-    if not tool then
-        local backpack = player:FindFirstChild("Backpack")
-        if backpack then
-            tool = backpack:FindFirstChildOfClass("Tool")
-        end
-    end
-    data.Equipped.Text = (tool and tool.Name or "None")
-end
-
--- Connect signals so the text updates LIVE
-Character.ChildAdded:Connect(function(obj)
-    if obj:IsA("Tool") then
-        updateTool()
-    end
-end)
-
-Character.ChildRemoved:Connect(function(obj)
-    if obj:IsA("Tool") then
-        updateTool()
-    end
-end)
-
-local backpack = player:FindFirstChild("Backpack")
-if backpack then
-    backpack.ChildAdded:Connect(function(obj)
-        if obj:IsA("Tool") then
-            updateTool()
-        end
-    end)
-    backpack.ChildRemoved:Connect(function(obj)
-        if obj:IsA("Tool") then
-            updateTool()
-        end
-    end)
-end
-
--- Run once immediately
-updateTool()
-
 -- ===================== ESP Setup =====================
 local function setupESP(player)
     if player == LocalPlayer then return end
@@ -126,7 +81,7 @@ local function setupESP(player)
             skeleton[pair[1].."_"..pair[2]] = createLine()
         end
 
-        ESPObjects[player] = {
+        local espData = {
             Character = char,
             Name = nameTag,
             Distance = distanceTag,
@@ -134,7 +89,49 @@ local function setupESP(player)
             Skeleton = skeleton,
             BonePairs = bonePairs
         }
+        ESPObjects[player] = espData
 
+        -- Helper: Update equipped tool text
+        local function updateTool()
+            local tool = char:FindFirstChildOfClass("Tool")
+            if not tool then
+                local backpack = player:FindFirstChild("Backpack")
+                if backpack then
+                    tool = backpack:FindFirstChildOfClass("Tool")
+                end
+            end
+            espData.Equipped.Text = tool and ("Equipped: " .. tool.Name) or "Equipped: None"
+        end
+
+        -- Connect signals to live update tool
+        char.ChildAdded:Connect(function(obj)
+            if obj:IsA("Tool") then
+                updateTool()
+            end
+        end)
+        char.ChildRemoved:Connect(function(obj)
+            if obj:IsA("Tool") then
+                updateTool()
+            end
+        end)
+
+        local backpack = player:FindFirstChild("Backpack")
+        if backpack then
+            backpack.ChildAdded:Connect(function(obj)
+                if obj:IsA("Tool") then
+                    updateTool()
+                end
+            end)
+            backpack.ChildRemoved:Connect(function(obj)
+                if obj:IsA("Tool") then
+                    updateTool()
+                end
+            end)
+        end
+
+        updateTool() -- run once immediately
+
+        -- Remove ESP when player dies
         humanoid.Died:Connect(function()
             if ESPObjects[player] then
                 local old = ESPObjects[player]
