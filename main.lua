@@ -14,7 +14,8 @@ local ESPEnabled = true
 local COLORS = {
     Enemy = Color3.fromRGB(255, 0, 0),
     Ally = Color3.fromRGB(0, 255, 0),
-    Skeleton = Color3.fromRGB(255, 255, 255)
+    Skeleton = Color3.fromRGB(255, 255, 255),
+    Text = Color3.fromRGB(180,180,180)
 }
 
 local ESPObjects = {}
@@ -53,97 +54,51 @@ local function createLine()
 end
 
 -- ===================== ESP Setup =====================
-local function cleanupESPForPlayer(player)
+local function cleanupESP(player)
     local old = ESPObjects[player]
-    if old then
-        if old.Name then pcall(function() old.Name:Remove() end) end
-        if old.Distance then pcall(function() old.Distance:Remove() end) end
-        if old.Equipped then pcall(function() old.Equipped:Remove() end) end
-        for _, line in pairs(old.Skeleton or {}) do
-            if line then pcall(function() line:Remove() end) end
-        end
-        ESPObjects[player] = nil
+    if not old then return end
+    if old.Name then pcall(function() old.Name:Remove() end) end
+    if old.Distance then pcall(function() old.Distance:Remove() end) end
+    if old.Equipped then pcall(function() old.Equipped:Remove() end) end
+    for _, line in pairs(old.Skeleton or {}) do
+        if line then pcall(function() line:Remove() end) end
     end
+    ESPObjects[player] = nil
 end
 
 local function setupESP(player)
     if player == LocalPlayer then return end
 
     local function onCharacter(char)
-        cleanupESPForPlayer(player)
+        cleanupESP(player)
 
-        local humanoid = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid",5)
+        local humanoid = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
         if not humanoid then return end
 
         local nameTag = createText(14)
         local distanceTag = createText(13)
         local equippedTag = createText(13)
 
-        -- Determine which bones to use
         local bonePairs = humanoid.RigType == Enum.HumanoidRigType.R15 and R15Bones or R6Bones
         local skeleton = {}
         for _, pair in ipairs(bonePairs) do
             skeleton[pair[1].."_"..pair[2]] = createLine()
         end
 
-        local data = {
+        local espData = {
             Character = char,
             Name = nameTag,
             Distance = distanceTag,
             Equipped = equippedTag,
             Skeleton = skeleton,
-            BonePairs = bonePairs
+            BonePairs = bonePairs,
+            LastToolName = "None"
         }
-        ESPObjects[player] = data
+        ESPObjects[player] = espData
 
-        -- ===================== Tool Detection =====================
-        local function updateTool()
-            local toolName = "None"
-            -- Check character
-            local tool = char:FindFirstChildOfClass("Tool")
-            if tool then
-                toolName = tool.Name
-            else
-                -- Check backpack
-                local backpack = player:FindFirstChild("Backpack")
-                if backpack then
-                    local bpTool = backpack:FindFirstChildOfClass("Tool")
-                    if bpTool then toolName = bpTool.Name end
-                end
-            end
-            data.Equipped.Text = "Equipped: "..toolName
-        end
-
-        -- Connect character tool events
-        char.ChildAdded:Connect(function(obj)
-            if obj:IsA("Tool") then
-                updateTool()
-                obj.Equipped:Connect(updateTool)
-                obj.Unequipped:Connect(updateTool)
-            end
-        end)
-        char.ChildRemoved:Connect(function(obj)
-            if obj:IsA("Tool") then
-                updateTool()
-            end
-        end)
-
-        -- Connect backpack tool events
-        local backpack = player:FindFirstChild("Backpack")
-        if backpack then
-            backpack.ChildAdded:Connect(function(obj)
-                if obj:IsA("Tool") then updateTool() end
-            end)
-            backpack.ChildRemoved:Connect(function(obj)
-                if obj:IsA("Tool") then updateTool() end
-            end)
-        end
-
-        updateTool() -- initial update
-
-        -- Cleanup on death
+        -- Remove ESP when player dies
         humanoid.Died:Connect(function()
-            cleanupESPForPlayer(player)
+            cleanupESP(player)
         end)
     end
 
@@ -153,22 +108,29 @@ local function setupESP(player)
     end
 end
 
--- Initialize ESP for all players
+-- Apply ESP to all players
 for _, p in ipairs(Players:GetPlayers()) do
     setupESP(p)
 end
 Players.PlayerAdded:Connect(setupESP)
-Players.PlayerRemoving:Connect(cleanupESPForPlayer)
+Players.PlayerRemoving:Connect(cleanupESP)
 
--- ===================== ESP Update =====================
+-- ===================== ESP Update (per-frame) =====================
 RunService.RenderStepped:Connect(function()
-    if not ESPEnabled then return end
     local camPos = Camera.CFrame.Position
 
     for player, data in pairs(ESPObjects) do
+        if not ESPEnabled then
+            data.Name.Visible = false
+            data.Distance.Visible = false
+            data.Equipped.Visible = false
+            for _, line in pairs(data.Skeleton) do line.Visible = false end
+            continue
+        end
+
         local char = data.Character
         if not char or not char.Parent then
-            cleanupESPForPlayer(player)
+            cleanupESP(player)
             continue
         end
 
@@ -205,10 +167,10 @@ RunService.RenderStepped:Connect(function()
                 local p1, on1 = Camera:WorldToViewportPoint(part1.Position)
                 local p2, on2 = Camera:WorldToViewportPoint(part2.Position)
                 if on1 and on2 then
-                    line.From = Vector2.new(p1.X,p1.Y)
-                    line.To = Vector2.new(p2.X,p2.Y)
-                    line.Visible = true
+                    line.From = Vector2.new(p1.X, p1.Y)
+                    line.To = Vector2.new(p2.X, p2.Y)
                     line.Color = COLORS.Skeleton
+                    line.Visible = true
                 else
                     line.Visible = false
                 end
@@ -217,8 +179,8 @@ RunService.RenderStepped:Connect(function()
             end
         end
 
-        -- Name, distance, equipped tool
-        local headPos,onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
+        -- Name & Distance
+        local headPos, onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
         if onScreen then
             data.Name.Text = player.Name
             data.Name.Position = Vector2.new(headPos.X, headPos.Y-20)
@@ -227,11 +189,24 @@ RunService.RenderStepped:Connect(function()
 
             data.Distance.Text = math.floor(distance).." studs"
             data.Distance.Position = Vector2.new(headPos.X, headPos.Y-5)
-            data.Distance.Color = Color3.fromRGB(180,180,180)
+            data.Distance.Color = COLORS.Text
             data.Distance.Visible = true
 
-            data.Equipped.Position = Vector2.new(headPos.X, headPos.Y+10)
-            data.Equipped.Color = Color3.fromRGB(180,180,180)
+            -- ===================== Equipped Tool Update =====================
+            local currentTool = char:FindFirstChildOfClass("Tool")
+            if not currentTool then
+                local backpack = player:FindFirstChild("Backpack")
+                if backpack then
+                    currentTool = backpack:FindFirstChildOfClass("Tool")
+                end
+            end
+            local toolName = currentTool and currentTool.Name or "None"
+            if toolName ~= data.LastToolName then
+                data.Equipped.Text = "Equipped: "..toolName
+                data.LastToolName = toolName
+            end
+            data.Equipped.Position = Vector2.new(headPos.X, headPos.Y + 10)
+            data.Equipped.Color = COLORS.Text
             data.Equipped.Visible = true
         else
             data.Name.Visible = false
@@ -241,7 +216,7 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- UI Creation
+-- ===================== UI =====================
 local function CreateUI()
     local ScreenGui = Instance.new("ScreenGui")
     ScreenGui.Name = "ESPWhitelistUI"
@@ -249,8 +224,8 @@ local function CreateUI()
     ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
     local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0, 320, 0, 360)
-    Frame.Position = UDim2.new(0.5, -160, 0.5, -180)
+    Frame.Size = UDim2.new(0, 300, 0, 330)
+    Frame.Position = UDim2.new(0.5, -150, 0.5, -165)
     Frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
     Frame.Active = true
     Frame.Parent = ScreenGui
@@ -263,33 +238,36 @@ local function CreateUI()
             mousePos = input.Position
             framePos = Frame.Position
             input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then dragging=false end
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
             end)
         end
     end)
     Frame.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput=input end
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            dragInput = input
+        end
     end)
     UserInputService.InputChanged:Connect(function(input)
-        if input==dragInput and dragging then
+        if input == dragInput and dragging then
             local delta = input.Position - mousePos
-            Frame.Position = framePos + UDim2.new(0,delta.X,0,delta.Y)
+            Frame.Position = framePos + UDim2.new(0, delta.X, 0, delta.Y)
         end
     end)
 
     -- Title
     local Title = Instance.new("TextLabel")
-    Title.Size = UDim2.new(1,0,0,32)
-    Title.Position = UDim2.new(0,0,0,0)
+    Title.Size = UDim2.new(1,0,0,30)
     Title.BackgroundColor3 = Color3.fromRGB(50,50,50)
-    Title.Text = "ESP Control"
+    Title.Text = "ESP Whitelist / Blacklist"
     Title.TextColor3 = Color3.fromRGB(255,255,255)
     Title.Parent = Frame
 
     -- Input
     local InputBox = Instance.new("TextBox")
     InputBox.Size = UDim2.new(1,-20,0,30)
-    InputBox.Position = UDim2.new(0,10,0,42)
+    InputBox.Position = UDim2.new(0,10,0,40)
     InputBox.PlaceholderText = "Enter player name"
     InputBox.TextColor3 = Color3.fromRGB(255,255,255)
     InputBox.BackgroundColor3 = Color3.fromRGB(40,40,40)
@@ -299,7 +277,7 @@ local function CreateUI()
     -- Buttons
     local WLButton = Instance.new("TextButton")
     WLButton.Size = UDim2.new(0.5,-15,0,30)
-    WLButton.Position = UDim2.new(0,10,0,82)
+    WLButton.Position = UDim2.new(0,10,0,80)
     WLButton.Text = "Whitelist"
     WLButton.TextColor3 = Color3.fromRGB(255,255,255)
     WLButton.BackgroundColor3 = Color3.fromRGB(0,128,0)
@@ -307,7 +285,7 @@ local function CreateUI()
 
     local BLButton = Instance.new("TextButton")
     BLButton.Size = UDim2.new(0.5,-15,0,30)
-    BLButton.Position = UDim2.new(0.5,5,0,82)
+    BLButton.Position = UDim2.new(0.5,5,0,80)
     BLButton.Text = "Blacklist"
     BLButton.TextColor3 = Color3.fromRGB(255,255,255)
     BLButton.BackgroundColor3 = Color3.fromRGB(128,0,0)
@@ -315,23 +293,24 @@ local function CreateUI()
 
     local RefreshButton = Instance.new("TextButton")
     RefreshButton.Size = UDim2.new(1,-20,0,30)
-    RefreshButton.Position = UDim2.new(0,10,0,122)
+    RefreshButton.Position = UDim2.new(0,10,0,120)
     RefreshButton.Text = "Refresh ESP"
     RefreshButton.TextColor3 = Color3.fromRGB(255,255,255)
     RefreshButton.BackgroundColor3 = Color3.fromRGB(50,50,150)
     RefreshButton.Parent = Frame
 
-    local ToggleESPButton = Instance.new("TextButton")
-    ToggleESPButton.Size = UDim2.new(1,-20,0,30)
-    ToggleESPButton.Position = UDim2.new(0,10,0,162)
-    ToggleESPButton.Text = "Toggle ESP"
-    ToggleESPButton.TextColor3 = Color3.fromRGB(255,255,255)
-    ToggleESPButton.BackgroundColor3 = Color3.fromRGB(80,80,80)
-    ToggleESPButton.Parent = Frame
+    local ToggleESP = Instance.new("TextButton")
+    ToggleESP.Size = UDim2.new(1,-20,0,30)
+    ToggleESP.Position = UDim2.new(0,10,0,160)
+    ToggleESP.Text = "Toggle ESP"
+    ToggleESP.TextColor3 = Color3.fromRGB(255,255,255)
+    ToggleESP.BackgroundColor3 = Color3.fromRGB(80,80,80)
+    ToggleESP.Parent = Frame
 
+    -- Max distance
     local DistanceBox = Instance.new("TextBox")
     DistanceBox.Size = UDim2.new(1,-20,0,30)
-    DistanceBox.Position = UDim2.new(0,10,0,202)
+    DistanceBox.Position = UDim2.new(0,10,0,200)
     DistanceBox.PlaceholderText = "Max Distance (studs)"
     DistanceBox.Text = tostring(MAX_DISTANCE)
     DistanceBox.TextColor3 = Color3.fromRGB(255,255,255)
@@ -341,31 +320,44 @@ local function CreateUI()
     -- Button logic
     WLButton.MouseButton1Click:Connect(function()
         local name = InputBox.Text
-        if name~="" then
-            Whitelist[name]=true
-            Blacklist[name]=nil
+        if name ~= "" then
+            Whitelist[name] = true
+            Blacklist[name] = nil
         end
     end)
     BLButton.MouseButton1Click:Connect(function()
         local name = InputBox.Text
-        if name~="" then
-            Blacklist[name]=true
-            Whitelist[name]=nil
+        if name ~= "" then
+            Blacklist[name] = true
+            Whitelist[name] = nil
         end
     end)
     RefreshButton.MouseButton1Click:Connect(function()
-        for player, _ in pairs(ESPObjects) do
-            cleanupESPForPlayer(player)
-            setupESP(player)
+        for player, data in pairs(ESPObjects) do
+            cleanupESP(player)
+        end
+        for _, p in ipairs(Players:GetPlayers()) do
+            setupESP(p)
         end
     end)
-    ToggleESPButton.MouseButton1Click:Connect(function()
+    ToggleESP.MouseButton1Click:Connect(function()
         ESPEnabled = not ESPEnabled
+        if not ESPEnabled then
+            for _, data in pairs(ESPObjects) do
+                data.Name.Visible = false
+                data.Distance.Visible = false
+                data.Equipped.Visible = false
+                for _, line in pairs(data.Skeleton) do line.Visible = false end
+            end
+        end
     end)
-    DistanceBox.FocusLost:Connect(function()
-        local val = tonumber(DistanceBox.Text)
-        if val and val>0 then MAX_DISTANCE=val
-        else DistanceBox.Text=tostring(MAX_DISTANCE) end
+    DistanceBox.FocusLost:Connect(function(enterPressed)
+        local value = tonumber(DistanceBox.Text)
+        if value and value > 0 then
+            MAX_DISTANCE = value
+        else
+            DistanceBox.Text = tostring(MAX_DISTANCE)
+        end
     end)
 end
 
