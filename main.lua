@@ -52,6 +52,36 @@ local function createLine()
     return line
 end
 
+-- Helper to get equipped tool name (reliable)
+local function getEquippedToolName(player, char)
+    if char and char.Parent then
+        -- 1) Check character for Tool instances (equipped tools are parented to character)
+        for _, obj in ipairs(char:GetChildren()) do
+            if obj:IsA("Tool") then
+                return obj.Name
+            end
+        end
+
+        -- 2) Humanoid may have a tool as a child (some tools)
+        local humanoidTool = char:FindFirstChildOfClass("Tool")
+        if humanoidTool then
+            return humanoidTool.Name
+        end
+    end
+
+    -- 3) Fallback: check player's Backpack for any Tool (unequipped)
+    local backpack = player:FindFirstChild("Backpack")
+    if backpack then
+        for _, tool in ipairs(backpack:GetChildren()) do
+            if tool:IsA("Tool") then
+                return tool.Name
+            end
+        end
+    end
+
+    return "None"
+end
+
 -- ===================== ESP Setup =====================
 local function setupESP(player)
     if player == LocalPlayer then return end
@@ -198,19 +228,10 @@ RunService.RenderStepped:Connect(function()
             data.Distance.Visible = true
 
             -- Equipped tool
-            local toolName = "None"
-            for _, tool in ipairs(player.Backpack:GetChildren()) do
-                if tool:IsA("Tool") then
-                    toolName = tool.Name
-                    break
-                end
-            end
-            if humanoid and humanoid:FindFirstChildOfClass("Tool") then
-                toolName = humanoid:FindFirstChildOfClass("Tool").Name
-            end
-            data.Equipped.Text = toolName
-            data.Equipped.Position = Vector2.new(headPos.X, headPos.Y+10)
-            data.Equipped.Color = Color3.fromRGB(180, 180, 180)
+            local toolName = getEquippedToolName(player, char)
+            data.Equipped.Text = "Holding: " .. (toolName ~= "" and toolName or "None")
+            data.Equipped.Position = Vector2.new(headPos.X, headPos.Y + 10)
+            data.Equipped.Color = color
             data.Equipped.Visible = true
         else
             data.Name.Visible = false
