@@ -1,21 +1,20 @@
 -- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
+local UserInputService = game:GetService("UserInputService")
 
 -- Settings
 local MAX_DISTANCE = 1000
-local ESPEnabled = true
 local Whitelist = {}
 local Blacklist = {}
+local ESPEnabled = true
 
 local COLORS = {
-    Enemy = Color3.fromRGB(255,0,0),
-    Ally = Color3.fromRGB(0,255,0),
-    Skeleton = Color3.fromRGB(255,255,255),
-    Text = Color3.fromRGB(180,180,180)
+    Enemy = Color3.fromRGB(255, 0, 0),
+    Ally = Color3.fromRGB(0, 255, 0),
+    Skeleton = Color3.fromRGB(255, 255, 255)
 }
 
 local ESPObjects = {}
@@ -35,13 +34,13 @@ local R6Bones = {
     {"Torso","Right Arm"},{"Right Arm","Right Leg"}
 }
 
--- Drawing Helpers
+-- ===================== Drawing Helpers =====================
 local function createText(size)
     local text = Drawing.new("Text")
     text.Size = size
     text.Center = true
     text.Outline = true
-    text.Visible = false
+    text.Visible = true
     return text
 end
 
@@ -49,42 +48,28 @@ local function createLine()
     local line = Drawing.new("Line")
     line.Thickness = 2
     line.Color = COLORS.Skeleton
-    line.Visible = false
+    line.Visible = true
     return line
 end
 
--- Get currently equipped tool reliably
-local function getEquippedTool(player, char)
-    if char then
-        local tool = char:FindFirstChildOfClass("Tool")
-        if tool then return tool.Name end
-    end
-    local backpack = player:FindFirstChild("Backpack")
-    if backpack then
-        local tool = backpack:FindFirstChildOfClass("Tool")
-        if tool then return tool.Name end
-    end
-    return "None"
-end
-
--- Cleanup ESP for a player
+-- ===================== ESP Setup =====================
 local function cleanupESPForPlayer(player)
     local old = ESPObjects[player]
-    if not old then return end
-    if old.Name then pcall(function() old.Name:Remove() end) end
-    if old.Distance then pcall(function() old.Distance:Remove() end) end
-    if old.Equipped then pcall(function() old.Equipped:Remove() end) end
-    for _, line in pairs(old.Skeleton or {}) do
-        if line then pcall(function() line:Remove() end) end
+    if old then
+        if old.Name then pcall(function() old.Name:Remove() end) end
+        if old.Distance then pcall(function() old.Distance:Remove() end) end
+        if old.Equipped then pcall(function() old.Equipped:Remove() end) end
+        for _, line in pairs(old.Skeleton or {}) do
+            if line then pcall(function() line:Remove() end) end
+        end
+        ESPObjects[player] = nil
     end
-    ESPObjects[player] = nil
 end
 
--- Setup ESP for a player
 local function setupESP(player)
     if player == LocalPlayer then return end
 
-    local function onCharacterAdded(char)
+    local function onCharacter(char)
         cleanupESPForPlayer(player)
 
         local humanoid = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid",5)
@@ -94,13 +79,14 @@ local function setupESP(player)
         local distanceTag = createText(13)
         local equippedTag = createText(13)
 
+        -- Determine which bones to use
         local bonePairs = humanoid.RigType == Enum.HumanoidRigType.R15 and R15Bones or R6Bones
         local skeleton = {}
         for _, pair in ipairs(bonePairs) do
             skeleton[pair[1].."_"..pair[2]] = createLine()
         end
 
-        ESPObjects[player] = {
+        local data = {
             Character = char,
             Name = nameTag,
             Distance = distanceTag,
@@ -108,39 +94,78 @@ local function setupESP(player)
             Skeleton = skeleton,
             BonePairs = bonePairs
         }
+        ESPObjects[player] = data
 
+        -- ===================== Tool Detection =====================
+        local function updateTool()
+            local toolName = "None"
+            -- Check character
+            local tool = char:FindFirstChildOfClass("Tool")
+            if tool then
+                toolName = tool.Name
+            else
+                -- Check backpack
+                local backpack = player:FindFirstChild("Backpack")
+                if backpack then
+                    local bpTool = backpack:FindFirstChildOfClass("Tool")
+                    if bpTool then toolName = bpTool.Name end
+                end
+            end
+            data.Equipped.Text = "Equipped: "..toolName
+        end
+
+        -- Connect character tool events
+        char.ChildAdded:Connect(function(obj)
+            if obj:IsA("Tool") then
+                updateTool()
+                obj.Equipped:Connect(updateTool)
+                obj.Unequipped:Connect(updateTool)
+            end
+        end)
+        char.ChildRemoved:Connect(function(obj)
+            if obj:IsA("Tool") then
+                updateTool()
+            end
+        end)
+
+        -- Connect backpack tool events
+        local backpack = player:FindFirstChild("Backpack")
+        if backpack then
+            backpack.ChildAdded:Connect(function(obj)
+                if obj:IsA("Tool") then updateTool() end
+            end)
+            backpack.ChildRemoved:Connect(function(obj)
+                if obj:IsA("Tool") then updateTool() end
+            end)
+        end
+
+        updateTool() -- initial update
+
+        -- Cleanup on death
         humanoid.Died:Connect(function()
             cleanupESPForPlayer(player)
         end)
     end
 
-    player.CharacterAdded:Connect(onCharacterAdded)
+    player.CharacterAdded:Connect(onCharacter)
     if player.Character then
-        onCharacterAdded(player.Character)
+        onCharacter(player.Character)
     end
 end
 
--- Initialize ESP for existing players
+-- Initialize ESP for all players
 for _, p in ipairs(Players:GetPlayers()) do
     setupESP(p)
 end
 Players.PlayerAdded:Connect(setupESP)
-Players.PlayerRemoving:Connect(function(player)
-    cleanupESPForPlayer(player)
-end)
+Players.PlayerRemoving:Connect(cleanupESPForPlayer)
 
--- ESP Update (per-frame)
+-- ===================== ESP Update =====================
 RunService.RenderStepped:Connect(function()
+    if not ESPEnabled then return end
     local camPos = Camera.CFrame.Position
-    for player, data in pairs(ESPObjects) do
-        if not ESPEnabled then
-            if data.Name then data.Name.Visible = false end
-            if data.Distance then data.Distance.Visible = false end
-            if data.Equipped then data.Equipped.Visible = false end
-            for _, ln in pairs(data.Skeleton) do if ln then ln.Visible = false end end
-            continue
-        end
 
+    for player, data in pairs(ESPObjects) do
         local char = data.Character
         if not char or not char.Parent then
             cleanupESPForPlayer(player)
@@ -154,14 +179,14 @@ RunService.RenderStepped:Connect(function()
 
         local distance = (hrp.Position - camPos).Magnitude
         if distance > MAX_DISTANCE then
-            if data.Name then data.Name.Visible = false end
-            if data.Distance then data.Distance.Visible = false end
-            if data.Equipped then data.Equipped.Visible = false end
-            for _, ln in pairs(data.Skeleton) do if ln then ln.Visible = false end end
+            data.Name.Visible = false
+            data.Distance.Visible = false
+            data.Equipped.Visible = false
+            for _, line in pairs(data.Skeleton) do line.Visible = false end
             continue
         end
 
-        -- Color logic
+        -- Determine color
         local color = COLORS.Enemy
         if Whitelist[player.Name] then
             color = COLORS.Ally
@@ -171,45 +196,42 @@ RunService.RenderStepped:Connect(function()
             color = COLORS.Ally
         end
 
-        -- Skeleton
+        -- Skeleton ESP
         for _, pair in ipairs(data.BonePairs) do
             local part1 = char:FindFirstChild(pair[1])
             local part2 = char:FindFirstChild(pair[2])
-            local ln = data.Skeleton[pair[1].."_"..pair[2]]
-            if part1 and part2 and ln then
+            local line = data.Skeleton[pair[1].."_"..pair[2]]
+            if part1 and part2 then
                 local p1, on1 = Camera:WorldToViewportPoint(part1.Position)
                 local p2, on2 = Camera:WorldToViewportPoint(part2.Position)
                 if on1 and on2 then
-                    ln.From = Vector2.new(p1.X, p1.Y)
-                    ln.To = Vector2.new(p2.X, p2.Y)
-                    ln.Color = COLORS.Skeleton
-                    ln.Visible = true
+                    line.From = Vector2.new(p1.X,p1.Y)
+                    line.To = Vector2.new(p2.X,p2.Y)
+                    line.Visible = true
+                    line.Color = COLORS.Skeleton
                 else
-                    ln.Visible = false
+                    line.Visible = false
                 end
-            elseif ln then
-                ln.Visible = false
+            else
+                line.Visible = false
             end
         end
 
-        -- UI texts
-        local headPos, onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
+        -- Name, distance, equipped tool
+        local headPos,onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
         if onScreen then
             data.Name.Text = player.Name
-            data.Name.Position = Vector2.new(headPos.X, headPos.Y-28)
+            data.Name.Position = Vector2.new(headPos.X, headPos.Y-20)
             data.Name.Color = color
             data.Name.Visible = true
 
             data.Distance.Text = math.floor(distance).." studs"
-            data.Distance.Position = Vector2.new(headPos.X, headPos.Y-12)
-            data.Distance.Color = COLORS.Text
+            data.Distance.Position = Vector2.new(headPos.X, headPos.Y-5)
+            data.Distance.Color = Color3.fromRGB(180,180,180)
             data.Distance.Visible = true
 
-            -- Equipped tool
-            local toolName = getEquippedTool(player, char)
-            data.Equipped.Text = "Equipped: "..toolName
-            data.Equipped.Position = Vector2.new(headPos.X, headPos.Y + 6)
-            data.Equipped.Color = COLORS.Text
+            data.Equipped.Position = Vector2.new(headPos.X, headPos.Y+10)
+            data.Equipped.Color = Color3.fromRGB(180,180,180)
             data.Equipped.Visible = true
         else
             data.Name.Visible = false
