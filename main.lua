@@ -53,34 +53,49 @@ local function createLine()
 end
 
 -- Helper to get equipped tool name (reliable)
-local function getEquippedToolName(player, char)
-    if char and char.Parent then
-        -- 1) Check character for Tool instances (equipped tools are parented to character)
-        for _, obj in ipairs(char:GetChildren()) do
-            if obj:IsA("Tool") then
-                return obj.Name
-            end
-        end
-
-        -- 2) Humanoid may have a tool as a child (some tools)
-        local humanoidTool = char:FindFirstChildOfClass("Tool")
-        if humanoidTool then
-            return humanoidTool.Name
+local function updateTool()
+    local tool = nil
+    if char then
+        tool = char:FindFirstChildOfClass("Tool")
+    end
+    if not tool then
+        local backpack = player:FindFirstChild("Backpack")
+        if backpack then
+            tool = backpack:FindFirstChildOfClass("Tool")
         end
     end
-
-    -- 3) Fallback: check player's Backpack for any Tool (unequipped)
-    local backpack = player:FindFirstChild("Backpack")
-    if backpack then
-        for _, tool in ipairs(backpack:GetChildren()) do
-            if tool:IsA("Tool") then
-                return tool.Name
-            end
-        end
-    end
-
-    return "None"
+    data.Equipped.Text = "Holding: " .. (tool and tool.Name or "None")
 end
+
+-- Connect signals so the text updates LIVE
+char.ChildAdded:Connect(function(obj)
+    if obj:IsA("Tool") then
+        updateTool()
+    end
+end)
+
+char.ChildRemoved:Connect(function(obj)
+    if obj:IsA("Tool") then
+        updateTool()
+    end
+end)
+
+local backpack = player:FindFirstChild("Backpack")
+if backpack then
+    backpack.ChildAdded:Connect(function(obj)
+        if obj:IsA("Tool") then
+            updateTool()
+        end
+    end)
+    backpack.ChildRemoved:Connect(function(obj)
+        if obj:IsA("Tool") then
+            updateTool()
+        end
+    end)
+end
+
+-- Run once immediately
+updateTool()
 
 -- ===================== ESP Setup =====================
 local function setupESP(player)
@@ -228,10 +243,8 @@ RunService.RenderStepped:Connect(function()
             data.Distance.Visible = true
 
             -- Equipped tool
-            local toolName = getEquippedToolName(player, char)
-            data.Equipped.Text = "Holding: " .. (toolName ~= "" and toolName or "None")
             data.Equipped.Position = Vector2.new(headPos.X, headPos.Y + 10)
-            data.Equipped.Color = color
+            data.Equipped.Color = Color3.fromRGB(180, 180, 180)
             data.Equipped.Visible = true
         else
             data.Name.Visible = false
