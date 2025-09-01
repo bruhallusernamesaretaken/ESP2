@@ -2,6 +2,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character
 local Camera = workspace.CurrentCamera
 local UserInputService = game:GetService("UserInputService")
 
@@ -55,8 +56,8 @@ end
 -- Helper to get equipped tool name (reliable)
 local function updateTool()
     local tool = nil
-    if char then
-        tool = char:FindFirstChildOfClass("Tool")
+    if Character then
+        tool = Character:FindFirstChildOfClass("Tool")
     end
     if not tool then
         local backpack = player:FindFirstChild("Backpack")
@@ -64,17 +65,17 @@ local function updateTool()
             tool = backpack:FindFirstChildOfClass("Tool")
         end
     end
-    data.Equipped.Text = "Holding: " .. (tool and tool.Name or "None")
+    data.Equipped.Text = (tool and tool.Name or "None")
 end
 
 -- Connect signals so the text updates LIVE
-char.ChildAdded:Connect(function(obj)
+Character.ChildAdded:Connect(function(obj)
     if obj:IsA("Tool") then
         updateTool()
     end
 end)
 
-char.ChildRemoved:Connect(function(obj)
+Character.ChildRemoved:Connect(function(obj)
     if obj:IsA("Tool") then
         updateTool()
     end
