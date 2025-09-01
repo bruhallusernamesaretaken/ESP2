@@ -15,7 +15,7 @@ local COLORS = {
     Enemy = Color3.fromRGB(255, 0, 0),
     Ally = Color3.fromRGB(0, 255, 0),
     Skeleton = Color3.fromRGB(255, 255, 255),
-    DistanceGray = Color3.fromRGB(180,180,180)
+    Text = Color3.fromRGB(180,180,180)
 }
 
 local ESPObjects = {}
@@ -238,7 +238,7 @@ RunService.RenderStepped:Connect(function()
             if data.Distance then
                 data.Distance.Text = math.floor(distance).." studs"
                 data.Distance.Position = Vector2.new(headPos.X, headPos.Y - 12)
-                data.Distance.Color = COLORS.DistanceGray
+                data.Distance.Color = COLORS.Text
                 data.Distance.Visible = true
             end
 
@@ -247,7 +247,7 @@ RunService.RenderStepped:Connect(function()
                 local toolName = getEquippedToolName(player, char) or "None"
                 data.Equipped.Text = (toolName ~= "" and toolName or "None")
                 data.Equipped.Position = Vector2.new(headPos.X, headPos.Y + 6)
-                data.Equipped.Color = color
+                data.Equipped.Color = COLORS.Text
                 data.Equipped.Visible = true
             end
         else
