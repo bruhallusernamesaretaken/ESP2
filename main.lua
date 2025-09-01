@@ -59,7 +59,7 @@ end
 local function getEquippedToolName(player, char)
     if char and char.Parent then
         -- Prefer tool parented to character (equipped)
-        local t = char:FindFirstChildWhichIsA and char:FindFirstChildWhichIsA("Tool", true)
+        local t = char:FindFirstChildWhichIsA("Tool", true)
         if t and t:IsA("Tool") then return t.Name end
         -- fallback to FindFirstChildOfClass
         local t2 = char:FindFirstChildOfClass("Tool")
