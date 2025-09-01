@@ -1,5 +1,3 @@
--- Drawing-only ESP (works with Drawing enabled executors like Solara v3)
-
 -- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -8,7 +6,7 @@ local Camera = workspace.CurrentCamera
 local UserInputService = game:GetService("UserInputService")
 
 -- Settings
-local MAX_DISTANCE = 1000
+local MAX_DISTANCE = 250
 local Whitelist = {}
 local Blacklist = {}
 local ESPEnabled = true
@@ -325,7 +323,7 @@ RunService.RenderStepped:Connect(function()
             -- equipped (recompute every frame for reliability)
             if data.Equipped then
                 local toolName = getEquippedToolName(player, char) or "None"
-                data.Equipped.Text = "Holding: " .. (toolName ~= "" and toolName or "None")
+                data.Equipped.Text = (toolName ~= "" and toolName or "None")
                 data.Equipped.Position = Vector2.new(headPos.X, headPos.Y - 38)
                 data.Equipped.Color = COLORS.TextGray
                 data.Equipped.Visible = true
@@ -432,7 +430,6 @@ local function CreateUI()
     ToggleESP.Parent = Frame
 
     -- Max distance
-
     local DistanceBox = Instance.new("TextBox")
     DistanceBox.Size = UDim2.new(1,-20,0,30)
     DistanceBox.Position = UDim2.new(0,10,0,232)
