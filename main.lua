@@ -45,49 +45,106 @@ local function createLine()
     return line
 end
 
+-- Helper to safely cleanup an ESP entry
+local function cleanupESPForPlayer(player)
+    local data = ESPObjects[player]
+    if not data then return end
+
+    if data.Name then
+        pcall(function() data.Name:Remove() end)
+    end
+    if data.Distance then
+        pcall(function() data.Distance:Remove() end)
+    end
+    if data.Equipped then
+        pcall(function() data.Equipped:Remove() end)
+    end
+
+    -- disconnect any stored connections
+    if data.EquippedConns then
+        for _, conn in pairs(data.EquippedConns) do
+            if conn and conn.Disconnect then
+                pcall(function() conn:Disconnect() end)
+            end
+        end
+    end
+
+    if data.Skeleton then
+        for _, line in pairs(data.Skeleton) do
+            pcall(function() line:Remove() end)
+        end
+    end
+
+    ESPObjects[player] = nil
+end
+
 -- Setup ESP for a player
 local function setupESP(player)
     if player == LocalPlayer then return end
 
     local function onCharacter(char)
-        -- Remove old ESP
+        -- Remove old ESP if present
         if ESPObjects[player] then
-            local old = ESPObjects[player]
-            if old.Name then old.Name:Remove() end
-            if old.Distance then old.Distance:Remove() end
-            if old.Equipped then old.Equipped:Remove() end
-            for _, line in pairs(old.Skeleton or {}) do line:Remove() end
-            ESPObjects[player] = nil
+            cleanupESPForPlayer(player)
         end
 
         local humanoid = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid",5)
         if not humanoid then return end
 
         local nameTag = createText(14)
-        local equippedTag = createText(12)           -- ADDED: equipped item text
+        local equippedTag = createText(12)           -- equipped text (always shows "None" when empty)
         local distanceTag = createText(13)
         local skeleton = {}
         for _, pair in ipairs(R15Bones) do
             skeleton[pair[1].."_"..pair[2]] = createLine()
         end
 
+        -- store ESP data
         ESPObjects[player] = {
             Character = char,
             Name = nameTag,
-            Equipped = equippedTag,    -- store equipped text
+            Equipped = equippedTag,
             Distance = distanceTag,
-            Skeleton = skeleton
+            Skeleton = skeleton,
+            EquippedConns = {}
         }
 
-        humanoid.Died:Connect(function()
-            if ESPObjects[player] then
-                local old = ESPObjects[player]
-                if old.Name then old.Name:Remove() end
-                if old.Distance then old.Distance:Remove() end
-                if old.Equipped then old.Equipped:Remove() end
-                for _, line in pairs(old.Skeleton or {}) do line:Remove() end
-                ESPObjects[player] = nil
+        local data = ESPObjects[player]
+
+        -- Function to update equipped text (explicitly sets "None" when no tool)
+        local function updateEquipped()
+            if not ESPObjects[player] then return end
+            local c = ESPObjects[player].Character
+            if not c then return end
+            local equippedTool = c:FindFirstChildOfClass("Tool")
+            local equippedText = equippedTool and equippedTool.Name or "None"
+            if ESPObjects[player] and ESPObjects[player].Equipped then
+                ESPObjects[player].Equipped.Text = equippedText
             end
+        end
+
+        -- Connect to ChildAdded / ChildRemoved to update instantly on equip/unequip/switch
+        local connAdded = char.ChildAdded:Connect(function(child)
+            if child:IsA("Tool") then
+                updateEquipped()
+            end
+        end)
+        local connRemoved = char.ChildRemoved:Connect(function(child)
+            if child:IsA("Tool") then
+                -- small pcall so errors don't break other code
+                pcall(updateEquipped)
+            end
+        end)
+
+        -- store connections for cleanup later
+        table.insert(data.EquippedConns, connAdded)
+        table.insert(data.EquippedConns, connRemoved)
+
+        -- Ensure equipped text is set initially
+        updateEquipped()
+
+        humanoid.Died:Connect(function()
+            cleanupESPForPlayer(player)
         end)
     end
 
@@ -103,24 +160,21 @@ for _, p in ipairs(Players:GetPlayers()) do
 end
 Players.PlayerAdded:Connect(setupESP)
 Players.PlayerRemoving:Connect(function(player)
-    if ESPObjects[player] then
-        local old = ESPObjects[player]
-        if old.Name then old.Name:Remove() end
-        if old.Distance then old.Distance:Remove() end
-        if old.Equipped then old.Equipped:Remove() end
-        for _, line in pairs(old.Skeleton or {}) do line:Remove() end
-        ESPObjects[player] = nil
-    end
+    cleanupESPForPlayer(player)
 end)
 
--- ESP update
+-- ESP update (render loop)
 RunService.RenderStepped:Connect(function()
     if not ESPEnabled then
         for _, data in pairs(ESPObjects) do
-            data.Name.Visible = false
-            data.Distance.Visible = false
+            if data.Name then data.Name.Visible = false end
+            if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
-            for _, line in pairs(data.Skeleton) do line.Visible = false end
+            if data.Skeleton then
+                for _, line in pairs(data.Skeleton) do
+                    line.Visible = false
+                end
+            end
         end
         return
     end
@@ -129,11 +183,7 @@ RunService.RenderStepped:Connect(function()
     for player, data in pairs(ESPObjects) do
         local char = data.Character
         if not char or not char.Parent then
-            if data.Name then data.Name:Remove() end
-            if data.Distance then data.Distance:Remove() end
-            if data.Equipped then data.Equipped:Remove() end
-            for _, line in pairs(data.Skeleton or {}) do line:Remove() end
-            ESPObjects[player] = nil
+            cleanupESPForPlayer(player)
             continue
         end
 
@@ -143,8 +193,8 @@ RunService.RenderStepped:Connect(function()
 
         local distance = (hrp.Position - camPos).Magnitude
         if distance > MAX_DISTANCE then
-            data.Name.Visible = false
-            data.Distance.Visible = false
+            if data.Name then data.Name.Visible = false end
+            if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
             for _, line in pairs(data.Skeleton) do line.Visible = false end
             continue
@@ -181,35 +231,34 @@ RunService.RenderStepped:Connect(function()
             end
         end
 
-        -- Name, equipped & distance
+        -- Name, equipped & distance positions
         local headPos,onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
         if onScreen then
-            -- Equipped detection (Tools in-hand)
-            local equippedTool = char:FindFirstChildOfClass("Tool")
-            local equippedText = equippedTool and equippedTool.Name or "None"
-
-            -- Equipped (above name)
+            -- Equipped (positioned above name). Note: text content is updated via ChildAdded/Removed handlers.
             if data.Equipped then
-                data.Equipped.Text = equippedText
-                data.Equipped.Position = Vector2.new(headPos.X, headPos.Y - 32) -- above name
+                data.Equipped.Position = Vector2.new(headPos.X, headPos.Y - 32)
                 data.Equipped.Color = Color3.fromRGB(180, 180, 180)
                 data.Equipped.Visible = true
             end
 
             -- Name
-            data.Name.Text = player.Name
-            data.Name.Position = Vector2.new(headPos.X, headPos.Y - 18)
-            data.Name.Color = color
-            data.Name.Visible = true
+            if data.Name then
+                data.Name.Text = player.Name
+                data.Name.Position = Vector2.new(headPos.X, headPos.Y - 18)
+                data.Name.Color = color
+                data.Name.Visible = true
+            end
 
             -- Distance
-            data.Distance.Text = math.floor(distance).." studs"
-            data.Distance.Position = Vector2.new(headPos.X, headPos.Y - 5)
-            data.Distance.Color = Color3.fromRGB(180, 180, 180)
-            data.Distance.Visible = true
+            if data.Distance then
+                data.Distance.Text = math.floor(distance).." studs"
+                data.Distance.Position = Vector2.new(headPos.X, headPos.Y - 5)
+                data.Distance.Color = Color3.fromRGB(180, 180, 180)
+                data.Distance.Visible = true
+            end
         else
-            data.Name.Visible = false
-            data.Distance.Visible = false
+            if data.Name then data.Name.Visible = false end
+            if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
         end
     end
@@ -332,14 +381,7 @@ local function CreateUI()
     RefreshButton.MouseButton1Click:Connect(function()
         -- Remove all existing ESP drawings
         for player, data in pairs(ESPObjects) do
-            if data.Name then data.Name:Remove() end
-            if data.Distance then data.Distance:Remove() end
-            if data.Equipped then data.Equipped:Remove() end
-            if data.Skeleton then
-                for _, line in pairs(data.Skeleton) do
-                    if line then line:Remove() end
-                end
-            end
+            cleanupESPForPlayer(player)
         end
 
         -- Clear ESPObjects completely
