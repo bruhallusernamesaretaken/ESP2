@@ -1,3 +1,4 @@
+-- Drawing-only ESP with robust equipped-tool tracking
 -- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -19,8 +20,8 @@ local COLORS = {
 }
 
 -- Storage
-local ESPObjects = {}   -- { [player] = { Character=..., Name=Drawing, Distance=Drawing, Equipped=Drawing, Skeleton={}, BonePairs={}, ... } }
-local ESPConns = {}     -- { [player] = { charAdded, died, charChildAdded, charChildRemoved, backpackAdded, backpackRemoved } }
+local ESPObjects = {}
+local ESPConns = {} -- per-player: { charConn, diedConn, charChildAdded, charChildRemoved, backpackAdded, backpackRemoved, toolConns = {tool = {eq,uneq,anc}} }
 
 -- Bone sets
 local R15Bones = {
@@ -89,7 +90,61 @@ local function getEquippedToolName(player, char)
     return "None"
 end
 
--- Cleanup per player: drawings + disconnects
+-- Connect Tool events for instant update, store conns in ESPConns[player].toolConns[tool] = {eq,uneq,anc}
+local function monitorTool(player, tool, data)
+    if not tool or not tool:IsA("Tool") then return nil end
+    ESPConns[player] = ESPConns[player] or {}
+    ESPConns[player].toolConns = ESPConns[player].toolConns or {}
+
+    -- avoid double-monitoring
+    if ESPConns[player].toolConns[tool] then return end
+
+    local conns = {}
+
+    -- Equipped event (may not fire for other players on some setups, but if it does, update instantly)
+    conns.eq = tool.Equipped:Connect(function()
+        local d = ESPObjects[player]
+        if d and d.Equipped then
+            d.Equipped.Text = "Holding: " .. (tool.Name or "None")
+        end
+    end)
+
+    -- Unequipped event
+    conns.uneq = tool.Unequipped:Connect(function()
+        local d = ESPObjects[player]
+        if d and d.Equipped then
+            -- per-frame will fix if tool moved; but set None immediately
+            d.Equipped.Text = "Holding: None"
+        end
+    end)
+
+    -- AncestryChanged: detect parent change (backpack <-> character)
+    conns.anc = tool.AncestryChanged:Connect(function(child, parent)
+        local d = ESPObjects[player]
+        if d and d.Equipped then
+            -- recompute immediately from current locations
+            local name = getEquippedToolName(player, d.Character) or "None"
+            d.Equipped.Text = "Holding: " .. (name ~= "" and name or "None")
+        end
+    end)
+
+    ESPConns[player].toolConns[tool] = conns
+end
+
+local function disconnectToolMonitors(player)
+    local tconns = ESPConns[player] and ESPConns[player].toolConns
+    if not tconns then return end
+    for tool, conns in pairs(tconns) do
+        if conns then
+            pcall(function() if conns.eq and conns.eq.Disconnect then conns.eq:Disconnect() end end)
+            pcall(function() if conns.uneq and conns.uneq.Disconnect then conns.uneq:Disconnect() end end)
+            pcall(function() if conns.anc and conns.anc.Disconnect then conns.anc:Disconnect() end end)
+        end
+    end
+    ESPConns[player].toolConns = nil
+end
+
+-- Cleanup per player: drawings + disconnects + tool monitors
 local function cleanupESPForPlayer(player)
     local old = ESPObjects[player]
     if old then
@@ -102,12 +157,15 @@ local function cleanupESPForPlayer(player)
 
     local c = ESPConns[player]
     if c then
+        -- disconnect stored conns
         if c.charConn and type(c.charConn.Disconnect) == "function" then pcall(function() c.charConn:Disconnect() end) end
         if c.diedConn and type(c.diedConn.Disconnect) == "function" then pcall(function() c.diedConn:Disconnect() end) end
         if c.charChildAdded and type(c.charChildAdded.Disconnect) == "function" then pcall(function() c.charChildAdded:Disconnect() end) end
         if c.charChildRemoved and type(c.charChildRemoved.Disconnect) == "function" then pcall(function() c.charChildRemoved:Disconnect() end) end
         if c.backpackAdded and type(c.backpackAdded.Disconnect) == "function" then pcall(function() c.backpackAdded:Disconnect() end) end
         if c.backpackRemoved and type(c.backpackRemoved.Disconnect) == "function" then pcall(function() c.backpackRemoved:Disconnect() end) end
+        -- disconnect any tool monitors
+        disconnectToolMonitors(player)
         ESPConns[player] = nil
     end
 end
@@ -156,22 +214,27 @@ local function setupESP(player)
             cleanupESPForPlayer(player)
         end)
 
-        -- child added/removed on character to update equipped immediately
+        -- child added/removed on character to update equipped immediately & monitor tools when they appear in char
         local charChildAdded = char.ChildAdded:Connect(function(child)
             if child:IsA("Tool") then
+                -- immediate visible update
                 local data = ESPObjects[player]
-                if data and data.Equipped and data.Character == char then
-                    -- immediate update (frame loop also updates)
-                    data.Equipped.Text = "Holding: " .. (child.Name or "None")
-                end
+                if data and data.Equipped then data.Equipped.Text = "Holding: " .. (child.Name or "None") end
+                -- monitor this tool
+                monitorTool(player, child, data)
             end
         end)
         local charChildRemoved = char.ChildRemoved:Connect(function(child)
             if child:IsA("Tool") then
                 local data = ESPObjects[player]
-                if data and data.Equipped and data.Character == char then
-                    -- will be recomputed next frame; set to None briefly
-                    data.Equipped.Text = "Holding: None"
+                if data and data.Equipped then data.Equipped.Text = "Holding: None" end
+                -- disconnect monitor for that tool if present
+                if ESPConns[player] and ESPConns[player].toolConns and ESPConns[player].toolConns[child] then
+                    local conns = ESPConns[player].toolConns[child]
+                    pcall(function() if conns.eq then conns.eq:Disconnect() end end)
+                    pcall(function() if conns.uneq then conns.uneq:Disconnect() end end)
+                    pcall(function() if conns.anc then conns.anc:Disconnect() end end)
+                    ESPConns[player].toolConns[child] = nil
                 end
             end
         end)
@@ -182,31 +245,50 @@ local function setupESP(player)
         if backpack then
             backpackAdded = backpack.ChildAdded:Connect(function(child)
                 if child:IsA("Tool") then
-                    local data = ESPObjects[player]
-                    if data and data.Equipped then
-                        -- no guarantee it is equipped; per-frame will resolve
-                        data.Equipped.Text = "Holding: " .. child.Name
-                    end
+                    -- monitor any tool that appears in backpack
+                    monitorTool(player, child, ESPObjects[player])
                 end
             end)
             backpackRemoved = backpack.ChildRemoved:Connect(function(child)
                 if child:IsA("Tool") then
-                    local data = ESPObjects[player]
-                    if data and data.Equipped then
-                        data.Equipped.Text = "Holding: None"
+                    -- if removed from backpack (likely moved to char), we will monitor it when it appears in char
+                    -- but disconnect previous monitor for safety & reconnect later if needed
+                    if ESPConns[player] and ESPConns[player].toolConns and ESPConns[player].toolConns[child] then
+                        local conns = ESPConns[player].toolConns[child]
+                        pcall(function() if conns.eq then conns.eq:Disconnect() end end)
+                        pcall(function() if conns.uneq then conns.uneq:Disconnect() end end)
+                        pcall(function() if conns.anc then conns.anc:Disconnect() end end)
+                        ESPConns[player].toolConns[child] = nil
                     end
                 end
             end)
         end
 
         ESPConns[player] = {
-            charConn = ESPConns[player].charConn, -- preserved (set below)
+            charConn = ESPConns[player].charConn, -- preserved if stored earlier
             diedConn = diedConn,
             charChildAdded = charChildAdded,
             charChildRemoved = charChildRemoved,
             backpackAdded = backpackAdded,
-            backpackRemoved = backpackRemoved
+            backpackRemoved = backpackRemoved,
+            toolConns = ESPConns[player].toolConns or {} -- keep any pre-existing monitors
         }
+
+        -- Initially monitor any existing tools in character & backpack
+        -- character:
+        for _, child in ipairs(char:GetChildren()) do
+            if child:IsA("Tool") then
+                monitorTool(player, child, ESPObjects[player])
+            end
+        end
+        -- backpack:
+        if backpack then
+            for _, child in ipairs(backpack:GetChildren()) do
+                if child:IsA("Tool") then
+                    monitorTool(player, child, ESPObjects[player])
+                end
+            end
+        end
 
         -- immediate equipped fill
         if ESPObjects[player] and ESPObjects[player].Equipped then
@@ -320,11 +402,11 @@ RunService.RenderStepped:Connect(function()
                 data.Distance.Visible = true
             end
 
-            -- equipped (recompute every frame for reliability)
+            -- equipped (recompute every frame for reliability; but we also monitor Tool events)
             if data.Equipped then
                 local toolName = getEquippedToolName(player, char) or "None"
-                data.Equipped.Text = (toolName ~= "" and toolName or "None")
-                data.Equipped.Position = Vector2.new(headPos.X, headPos.Y - 48)
+                data.Equipped.Text = "Holding: " .. (toolName ~= "" and toolName or "None")
+                data.Equipped.Position = Vector2.new(headPos.X, headPos.Y + 6)
                 data.Equipped.Color = COLORS.TextGray
                 data.Equipped.Visible = true
             end
@@ -336,7 +418,7 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- UI: Whitelist/Blacklist/Refresh/Toggle/MaxDistance (draggable)
+-- UI (unchanged)
 local function CreateUI()
     local ScreenGui = Instance.new("ScreenGui")
     ScreenGui.Name = "ESPWhitelistUI"
@@ -376,69 +458,58 @@ local function CreateUI()
         end
     end)
 
-    -- Title
-    local Title = Instance.new("TextLabel")
+    -- Controls
+    local Title = Instance.new("TextLabel", Frame)
     Title.Size = UDim2.new(1,0,0,32)
     Title.Position = UDim2.new(0,0,0,0)
     Title.BackgroundColor3 = Color3.fromRGB(50,50,50)
     Title.Text = "ESP Control"
     Title.TextColor3 = Color3.fromRGB(255,255,255)
-    Title.Parent = Frame
 
-    -- Input box
-    local InputBox = Instance.new("TextBox")
+    local InputBox = Instance.new("TextBox", Frame)
     InputBox.Size = UDim2.new(1,-20,0,30)
     InputBox.Position = UDim2.new(0,10,0,42)
     InputBox.PlaceholderText = "Enter player name"
     InputBox.TextColor3 = Color3.fromRGB(255,255,255)
     InputBox.BackgroundColor3 = Color3.fromRGB(40,40,40)
     InputBox.ClearTextOnFocus = false
-    InputBox.Parent = Frame
 
-    -- Buttons
-    local WLButton = Instance.new("TextButton")
+    local WLButton = Instance.new("TextButton", Frame)
     WLButton.Size = UDim2.new(0.5,-15,0,30)
     WLButton.Position = UDim2.new(0,10,0,82)
     WLButton.Text = "Whitelist"
     WLButton.TextColor3 = Color3.fromRGB(255,255,255)
     WLButton.BackgroundColor3 = Color3.fromRGB(0,128,0)
-    WLButton.Parent = Frame
 
-    local BLButton = Instance.new("TextButton")
+    local BLButton = Instance.new("TextButton", Frame)
     BLButton.Size = UDim2.new(0.5,-15,0,30)
     BLButton.Position = UDim2.new(0.5,5,0,82)
     BLButton.Text = "Blacklist"
     BLButton.TextColor3 = Color3.fromRGB(255,255,255)
     BLButton.BackgroundColor3 = Color3.fromRGB(128,0,0)
-    BLButton.Parent = Frame
 
-    -- Refresh / Toggle
-    local RefreshButton = Instance.new("TextButton")
+    local RefreshButton = Instance.new("TextButton", Frame)
     RefreshButton.Size = UDim2.new(1,-20,0,30)
     RefreshButton.Position = UDim2.new(0,10,0,122)
     RefreshButton.Text = "Refresh ESP"
     RefreshButton.TextColor3 = Color3.fromRGB(255,255,255)
     RefreshButton.BackgroundColor3 = Color3.fromRGB(50,50,150)
-    RefreshButton.Parent = Frame
 
-    local ToggleESP = Instance.new("TextButton")
+    local ToggleESP = Instance.new("TextButton", Frame)
     ToggleESP.Size = UDim2.new(1,-20,0,30)
     ToggleESP.Position = UDim2.new(0,10,0,162)
     ToggleESP.Text = "Toggle ESP (On)"
     ToggleESP.TextColor3 = Color3.fromRGB(255,255,255)
     ToggleESP.BackgroundColor3 = Color3.fromRGB(80,80,80)
-    ToggleESP.Parent = Frame
 
-    -- Max distance
-    local DistanceBox = Instance.new("TextBox")
+    local DistanceBox = Instance.new("TextBox", Frame)
     DistanceBox.Size = UDim2.new(1,-20,0,30)
-    DistanceBox.Position = UDim2.new(0,10,0,172)
+    DistanceBox.Position = UDim2.new(0,10,0,192)
     DistanceBox.PlaceholderText = "Enter max distance (studs)"
     DistanceBox.Text = tostring(MAX_DISTANCE)
     DistanceBox.TextColor3 = Color3.fromRGB(255,255,255)
     DistanceBox.BackgroundColor3 = Color3.fromRGB(40,40,40)
     DistanceBox.ClearTextOnFocus = false
-    DistanceBox.Parent = Frame
 
     -- Buttons logic
     WLButton.MouseButton1Click:Connect(function()
@@ -451,7 +522,6 @@ local function CreateUI()
     end)
 
     RefreshButton.MouseButton1Click:Connect(function()
-        -- cleanup drawings + conns and recreate
         for player, _ in pairs(ESPObjects) do cleanupESPForPlayer(player) end
         ESPObjects = {}
         for _, p in ipairs(Players:GetPlayers()) do setupESP(p) end
