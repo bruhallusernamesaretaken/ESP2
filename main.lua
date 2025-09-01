@@ -324,7 +324,7 @@ RunService.RenderStepped:Connect(function()
             if data.Equipped then
                 local toolName = getEquippedToolName(player, char) or "None"
                 data.Equipped.Text = (toolName ~= "" and toolName or "None")
-                data.Equipped.Position = Vector2.new(headPos.X, headPos.Y - 38)
+                data.Equipped.Position = Vector2.new(headPos.X, headPos.Y - 40)
                 data.Equipped.Color = COLORS.TextGray
                 data.Equipped.Visible = true
             end
@@ -432,7 +432,7 @@ local function CreateUI()
     -- Max distance
     local DistanceBox = Instance.new("TextBox")
     DistanceBox.Size = UDim2.new(1,-20,0,30)
-    DistanceBox.Position = UDim2.new(0,10,0,232)
+    DistanceBox.Position = UDim2.new(0,10,0,180)
     DistanceBox.PlaceholderText = "Enter max distance (studs)"
     DistanceBox.Text = tostring(MAX_DISTANCE)
     DistanceBox.TextColor3 = Color3.fromRGB(255,255,255)
