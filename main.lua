@@ -35,6 +35,9 @@ local R6Bones = {
     {"Torso","Right Leg"}
 }
 
+-- New: choose whether to show Username or DisplayName on ESP
+local UseDisplayNameForESP = false -- default: show username
+
 -- Drawing helpers
 local function createText(size)
     local text = Drawing.new("Text")
@@ -84,6 +87,31 @@ local function cleanupESPForPlayer(player)
     end
 
     ESPObjects[player] = nil
+end
+
+-- Helper functions for whitelist/blacklist matching (accept username OR displayname)
+local function isWhitelisted(player)
+    if not player then return false end
+    local n = player.Name
+    local d = player.DisplayName
+    return (Whitelist[n] ~= nil) or (Whitelist[d] ~= nil)
+end
+
+local function isBlacklisted(player)
+    if not player then return false end
+    local n = player.Name
+    local d = player.DisplayName
+    return (Blacklist[n] ~= nil) or (Blacklist[d] ~= nil)
+end
+
+-- Helper to get the name shown on ESP depending on toggle
+local function getESPName(player)
+    if UseDisplayNameForESP then
+        -- fallback to username if displayname empty or nil
+        return (player.DisplayName ~= "" and player.DisplayName) or player.Name
+    else
+        return player.Name
+    end
 end
 
 -- Setup ESP for a player
@@ -216,11 +244,11 @@ RunService.RenderStepped:Connect(function()
             continue
         end
 
-        -- Determine color
+        -- Determine color using new helper functions (checks both username and displayname)
         local color = COLORS.Enemy
-        if Whitelist[player.Name] then
+        if isWhitelisted(player) then
             color = COLORS.Ally
-        elseif Blacklist[player.Name] then
+        elseif isBlacklisted(player) then
             color = COLORS.Enemy
         elseif LocalPlayer.Team and player.Team == LocalPlayer.Team then
             color = COLORS.Ally
@@ -257,9 +285,9 @@ RunService.RenderStepped:Connect(function()
                 data.Equipped.Visible = true
             end
 
-            -- Name
+            -- Name (uses the new toggle to pick username or displayname)
             if data.Name then
-                data.Name.Text = player.Name
+                data.Name.Text = getESPName(player)
                 data.Name.Position = Vector2.new(headPos.X, headPos.Y - 18)
                 data.Name.Color = color
                 data.Name.Visible = true
@@ -288,8 +316,8 @@ local function CreateUI()
     ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
     local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0,300,0,250)
-    Frame.Position = UDim2.new(0.5,-150,0.5,-125)
+    Frame.Size = UDim2.new(0,300,0,290) -- extended height to fit new toggle
+    Frame.Position = UDim2.new(0.5,-150,0.5,-145)
     Frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
     Frame.Active = true
     Frame.Parent = ScreenGui
@@ -331,7 +359,7 @@ local function CreateUI()
     local InputBox = Instance.new("TextBox")
     InputBox.Size = UDim2.new(1,-20,0,30)
     InputBox.Position = UDim2.new(0,10,0,40)
-    InputBox.PlaceholderText = "Enter player name"
+    InputBox.PlaceholderText = "Enter player username or display name"
     InputBox.TextColor3 = Color3.fromRGB(255,255,255)
     InputBox.BackgroundColor3 = Color3.fromRGB(40,40,40)
     InputBox.Parent = Frame
@@ -368,9 +396,18 @@ local function CreateUI()
     ToggleESPButton.BackgroundColor3 = Color3.fromRGB(80,80,80)
     ToggleESPButton.Parent = Frame
 
+    -- New: Button to toggle whether ESP shows username or display name
+    local NameModeButton = Instance.new("TextButton")
+    NameModeButton.Size = UDim2.new(1,-20,0,30)
+    NameModeButton.Position = UDim2.new(0,10,0,200)
+    NameModeButton.Text = UseDisplayNameForESP and "Name Mode: DisplayName" or "Name Mode: Username"
+    NameModeButton.TextColor3 = Color3.fromRGB(255,255,255)
+    NameModeButton.BackgroundColor3 = Color3.fromRGB(70,70,70)
+    NameModeButton.Parent = Frame
+
     local DistanceBox = Instance.new("TextBox")
     DistanceBox.Size = UDim2.new(1,-20,0,30)
-    DistanceBox.Position = UDim2.new(0,10,0,200)
+    DistanceBox.Position = UDim2.new(0,10,0,240)
     DistanceBox.PlaceholderText = "Max Distance (studs)"
     DistanceBox.Text = tostring(MAX_DISTANCE)
     DistanceBox.TextColor3 = Color3.fromRGB(255,255,255)
@@ -379,7 +416,7 @@ local function CreateUI()
 
     -- Button logic
     WLButton.MouseButton1Click:Connect(function()
-        local name = InputBox.Text
+        local name = tostring(InputBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
         if name ~= "" then
             Whitelist[name] = true
             Blacklist[name] = nil
@@ -387,7 +424,7 @@ local function CreateUI()
     end)
 
     BLButton.MouseButton1Click:Connect(function()
-        local name = InputBox.Text
+        local name = tostring(InputBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
         if name ~= "" then
             Blacklist[name] = true
             Whitelist[name] = nil
@@ -412,6 +449,13 @@ local function CreateUI()
     ToggleESPButton.MouseButton1Click:Connect(function()
         ESPEnabled = not ESPEnabled
         ToggleESPButton.Text = ESPEnabled and "ESP: ON" or "ESP: OFF"
+    end)
+
+    -- Name mode toggle: switches whether on-screen name shows username or displayname
+    NameModeButton.MouseButton1Click:Connect(function()
+        UseDisplayNameForESP = not UseDisplayNameForESP
+        NameModeButton.Text = UseDisplayNameForESP and "Name Mode: DisplayName" or "Name Mode: Username"
+        -- No need to rebuild ESP; render loop will pick up the change next frame.
     end)
 
     DistanceBox.FocusLost:Connect(function(enterPressed)
