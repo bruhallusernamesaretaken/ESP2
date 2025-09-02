@@ -110,7 +110,7 @@ local function setupESP(player)
         local distanceTag = createText(13)
 
         -- choose bone set based on rig type (fallback to R15 if unknown)
-        local bones = (humanoid.RigType == Enum.HumanoidRigType.R6) and R6Bones or R15Bones
+        local bones = (humanoid.RigType == Enum.HumanoidRigType.R15) and R15Bones or R6Bones
 
         local skeleton = {}
         for _, pair in ipairs(bones) do
