@@ -27,13 +27,25 @@ local R15Bones = {
     {"LowerTorso","RightUpperLeg"},{"RightUpperLeg","RightLowerLeg"},{"RightLowerLeg","RightFoot"}
 }
 
+-- R6 bone pairs (note R6 part names include spaces)
+local R6Bones = {
+    {"Head","Torso"},
+    {"Torso","Left Arm"},
+    {"Torso","Right Arm"},
+    {"Torso","Left Leg"},
+    {"Torso","Right Leg"},
+    -- optional cross connections for a clearer skeleton
+    {"Left Arm","Left Leg"},
+    {"Right Arm","Right Leg"}
+}
+
 -- Drawing helpers
 local function createText(size)
     local text = Drawing.new("Text")
     text.Size = size
     text.Center = true
     text.Outline = true
-    text.Visible = true
+    text.Visible = false -- start hidden until positioned
     return text
 end
 
@@ -41,7 +53,7 @@ local function createLine()
     local line = Drawing.new("Line")
     line.Thickness = 2
     line.Color = COLORS.Skeleton
-    line.Visible = true
+    line.Visible = false -- start hidden until we have valid endpoints
     return line
 end
 
@@ -60,7 +72,6 @@ local function cleanupESPForPlayer(player)
         pcall(function() data.Equipped:Remove() end)
     end
 
-    -- disconnect any stored connections
     if data.EquippedConns then
         for _, conn in pairs(data.EquippedConns) do
             if conn and conn.Disconnect then
@@ -70,8 +81,11 @@ local function cleanupESPForPlayer(player)
     end
 
     if data.Skeleton then
-        for _, line in pairs(data.Skeleton) do
-            pcall(function() line:Remove() end)
+        for key, line in pairs(data.Skeleton) do
+            if line then
+                pcall(function() line:Remove() end)
+            end
+            data.Skeleton[key] = nil
         end
     end
 
@@ -94,8 +108,12 @@ local function setupESP(player)
         local nameTag = createText(14)
         local equippedTag = createText(12)           -- equipped text (always shows "None" when empty)
         local distanceTag = createText(13)
+
+        -- choose bone set based on rig type (fallback to R15 if unknown)
+        local bones = (humanoid.RigType == Enum.HumanoidRigType.R6) and R6Bones or R15Bones
+
         local skeleton = {}
-        for _, pair in ipairs(R15Bones) do
+        for _, pair in ipairs(bones) do
             skeleton[pair[1].."_"..pair[2]] = createLine()
         end
 
@@ -106,6 +124,7 @@ local function setupESP(player)
             Equipped = equippedTag,
             Distance = distanceTag,
             Skeleton = skeleton,
+            Bones = bones,
             EquippedConns = {}
         }
 
@@ -126,12 +145,11 @@ local function setupESP(player)
         -- Connect to ChildAdded / ChildRemoved to update instantly on equip/unequip/switch
         local connAdded = char.ChildAdded:Connect(function(child)
             if child:IsA("Tool") then
-                updateEquipped()
+                pcall(updateEquipped)
             end
         end)
         local connRemoved = char.ChildRemoved:Connect(function(child)
             if child:IsA("Tool") then
-                -- small pcall so errors don't break other code
                 pcall(updateEquipped)
             end
         end)
@@ -141,7 +159,7 @@ local function setupESP(player)
         table.insert(data.EquippedConns, connRemoved)
 
         -- Ensure equipped text is set initially
-        updateEquipped()
+        pcall(updateEquipped)
 
         humanoid.Died:Connect(function()
             cleanupESPForPlayer(player)
@@ -172,32 +190,57 @@ RunService.RenderStepped:Connect(function()
             if data.Equipped then data.Equipped.Visible = false end
             if data.Skeleton then
                 for _, line in pairs(data.Skeleton) do
-                    line.Visible = false
+                    if line then line.Visible = false end
                 end
             end
         end
         return
     end
 
-    local camPos = Camera.CFrame.Position
+    -- update camera reference (in case it changes)
+    Camera = workspace.CurrentCamera
+    local camPos = Camera and Camera.CFrame and Camera.CFrame.Position or Vector3.new()
+
     for player, data in pairs(ESPObjects) do
+        -- Basic sanity checks
+        if not data then
+            ESPObjects[player] = nil
+            goto continue_player
+        end
+
         local char = data.Character
         if not char or not char.Parent then
             cleanupESPForPlayer(player)
-            continue
+            goto continue_player
         end
 
-        local hrp = char:FindFirstChild("HumanoidRootPart")
+        -- HumanoidRootPart fallback: try HumanoidRootPart, Torso, UpperTorso
+        local hrp = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
         local head = char:FindFirstChild("Head")
-        if not (hrp and head) then continue end
+        if not (hrp and head) then
+            -- hide lines if important parts missing
+            if data.Skeleton then
+                for _, line in pairs(data.Skeleton) do
+                    if line then line.Visible = false end
+                end
+            end
+            if data.Name then data.Name.Visible = false end
+            if data.Distance then data.Distance.Visible = false end
+            if data.Equipped then data.Equipped.Visible = false end
+            goto continue_player
+        end
 
         local distance = (hrp.Position - camPos).Magnitude
         if distance > MAX_DISTANCE then
             if data.Name then data.Name.Visible = false end
             if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
-            for _, line in pairs(data.Skeleton) do line.Visible = false end
-            continue
+            if data.Skeleton then
+                for _, line in pairs(data.Skeleton) do
+                    if line then line.Visible = false end
+                end
+            end
+            goto continue_player
         end
 
         -- Determine color
@@ -210,33 +253,51 @@ RunService.RenderStepped:Connect(function()
             color = COLORS.Ally
         end
 
-        -- Skeleton ESP
-        for _, pair in ipairs(R15Bones) do
+        -- Skeleton ESP (use the bone mapping chosen at setup)
+        local bones = data.Bones or R15Bones
+        for _, pair in ipairs(bones) do
             local part1 = char:FindFirstChild(pair[1])
             local part2 = char:FindFirstChild(pair[2])
-            local line = data.Skeleton[pair[1].."_"..pair[2]]
-            if part1 and part2 then
-                local p1,on1 = Camera:WorldToViewportPoint(part1.Position)
-                local p2,on2 = Camera:WorldToViewportPoint(part2.Position)
-                if on1 and on2 then
-                    line.From = Vector2.new(p1.X,p1.Y)
-                    line.To = Vector2.new(p2.X,p2.Y)
-                    line.Visible = true
-                    line.Color = COLORS.Skeleton
+            local key = pair[1] .. "_" .. pair[2]
+            local line = data.Skeleton and data.Skeleton[key]
+
+            -- if for some reason the line is missing (rare), recreate it
+            if not line and data.Skeleton then
+                line = createLine()
+                data.Skeleton[key] = line
+            end
+
+            if part1 and part2 and line then
+                local ok1, p1 = pcall(function() return Camera:WorldToViewportPoint(part1.Position) end)
+                local ok2, p2 = pcall(function() return Camera:WorldToViewportPoint(part2.Position) end)
+                if ok1 and ok2 and p1 and p2 then
+                    local on1 = p1.Z > 0
+                    local on2 = p2.Z > 0
+                    if on1 and on2 then
+                        pcall(function()
+                            line.From = Vector2.new(p1.X, p1.Y)
+                            line.To = Vector2.new(p2.X, p2.Y)
+                            line.Color = COLORS.Skeleton
+                            line.Visible = true
+                        end)
+                    else
+                        line.Visible = false
+                    end
                 else
                     line.Visible = false
                 end
-            else
+            elseif line then
                 line.Visible = false
             end
         end
 
         -- Name, equipped & distance positions
-        local headPos,onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
-        if onScreen then
+        local okHead, headPos = pcall(function() return Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0)) end)
+        if okHead and headPos and headPos.Z > 0 then
+            local screenX, screenY = headPos.X, headPos.Y
             -- Equipped (positioned above name). Note: text content is updated via ChildAdded/Removed handlers.
             if data.Equipped then
-                data.Equipped.Position = Vector2.new(headPos.X, headPos.Y - 32)
+                data.Equipped.Position = Vector2.new(screenX, screenY - 32)
                 data.Equipped.Color = Color3.fromRGB(180, 180, 180)
                 data.Equipped.Visible = true
             end
@@ -244,7 +305,7 @@ RunService.RenderStepped:Connect(function()
             -- Name
             if data.Name then
                 data.Name.Text = player.Name
-                data.Name.Position = Vector2.new(headPos.X, headPos.Y - 18)
+                data.Name.Position = Vector2.new(screenX, screenY - 18)
                 data.Name.Color = color
                 data.Name.Visible = true
             end
@@ -252,7 +313,7 @@ RunService.RenderStepped:Connect(function()
             -- Distance
             if data.Distance then
                 data.Distance.Text = math.floor(distance).." studs"
-                data.Distance.Position = Vector2.new(headPos.X, headPos.Y - 5)
+                data.Distance.Position = Vector2.new(screenX, screenY - 5)
                 data.Distance.Color = Color3.fromRGB(180, 180, 180)
                 data.Distance.Visible = true
             end
@@ -261,10 +322,12 @@ RunService.RenderStepped:Connect(function()
             if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
         end
+
+        ::continue_player::
     end
 end)
 
--- UI
+-- UI (unchanged from your original, kept for convenience)
 local function CreateUI()
     local ScreenGui = Instance.new("ScreenGui")
     ScreenGui.Name = "ESPWhitelistUI"
