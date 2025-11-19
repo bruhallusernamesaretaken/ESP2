@@ -7,7 +7,7 @@ local UserInputService = game:GetService("UserInputService")
 
 -- Settings
 local ESPEnabled = true
-local MAX_DISTANCE = 1000 -- default distance
+local MAX_DISTANCE = 1000
 local Whitelist = {}
 local Blacklist = {}
 
@@ -35,8 +35,7 @@ local R6Bones = {
     {"Torso","Right Leg"}
 }
 
--- New: choose whether to show Username or DisplayName on ESP
-local UseDisplayNameForESP = false -- default: show username
+local UseDisplayNameForESP = false
 
 -- Drawing helpers
 local function createText(size)
@@ -71,7 +70,6 @@ local function cleanupESPForPlayer(player)
         pcall(function() data.Equipped:Remove() end)
     end
 
-    -- disconnect any stored connections
     if data.EquippedConns then
         for _, conn in pairs(data.EquippedConns) do
             if conn and conn.Disconnect then
@@ -107,7 +105,6 @@ end
 -- Helper to get the name shown on ESP depending on toggle
 local function getESPName(player)
     if UseDisplayNameForESP then
-        -- fallback to username if displayname empty or nil
         return (player.DisplayName ~= "" and player.DisplayName) or player.Name
     else
         return player.Name
@@ -119,7 +116,6 @@ local function setupESP(player)
     if player == LocalPlayer then return end
 
     local function onCharacter(char)
-        -- Remove old ESP if present
         if ESPObjects[player] then
             cleanupESPForPlayer(player)
         end
@@ -128,11 +124,10 @@ local function setupESP(player)
         if not humanoid then return end
 
         local nameTag = createText(14)
-        local equippedTag = createText(12)           -- equipped text (always shows "None" when empty)
+        local equippedTag = createText(12)
         local distanceTag = createText(13)
         local skeleton = {}
 
-        -- determine bones based on rig type (supports R6 and R15)
         local bonesTable = R15Bones
         if humanoid and humanoid.RigType == Enum.HumanoidRigType.R6 then
             bonesTable = R6Bones
@@ -142,7 +137,6 @@ local function setupESP(player)
             skeleton[pair[1].."_"..pair[2]] = createLine()
         end
 
-        -- store ESP data
         ESPObjects[player] = {
             Character = char,
             Name = nameTag,
@@ -155,7 +149,6 @@ local function setupESP(player)
 
         local data = ESPObjects[player]
 
-        -- Function to update equipped text (explicitly sets "None" when no tool)
         local function updateEquipped()
             if not ESPObjects[player] then return end
             local c = ESPObjects[player].Character
@@ -167,7 +160,6 @@ local function setupESP(player)
             end
         end
 
-        -- Connect to ChildAdded / ChildRemoved to update instantly on equip/unequip/switch
         local connAdded = char.ChildAdded:Connect(function(child)
             if child:IsA("Tool") then
                 updateEquipped()
@@ -175,16 +167,13 @@ local function setupESP(player)
         end)
         local connRemoved = char.ChildRemoved:Connect(function(child)
             if child:IsA("Tool") then
-                -- small pcall so errors don't break other code
                 pcall(updateEquipped)
             end
         end)
 
-        -- store connections for cleanup later
         table.insert(data.EquippedConns, connAdded)
         table.insert(data.EquippedConns, connRemoved)
 
-        -- Ensure equipped text is set initially
         updateEquipped()
 
         humanoid.Died:Connect(function()
@@ -244,7 +233,6 @@ RunService.RenderStepped:Connect(function()
             continue
         end
 
-        -- Determine color using new helper functions (checks both username and displayname)
         local color = COLORS.Enemy
         if isWhitelisted(player) then
             color = COLORS.Ally
@@ -254,7 +242,6 @@ RunService.RenderStepped:Connect(function()
             color = COLORS.Ally
         end
 
-        -- Skeleton ESP
         for _, pair in ipairs(data.Bones or R15Bones) do
             local part1 = char:FindFirstChild(pair[1])
             local part2 = char:FindFirstChild(pair[2])
@@ -275,17 +262,14 @@ RunService.RenderStepped:Connect(function()
             end
         end
 
-        -- Name, equipped & distance positions
         local headPos,onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
         if onScreen then
-            -- Equipped (positioned above name). Note: text content is updated via ChildAdded/Removed handlers.
             if data.Equipped then
                 data.Equipped.Position = Vector2.new(headPos.X, headPos.Y - 32)
                 data.Equipped.Color = Color3.fromRGB(180, 180, 180)
                 data.Equipped.Visible = true
             end
 
-            -- Name (uses the new toggle to pick username or displayname)
             if data.Name then
                 data.Name.Text = getESPName(player)
                 data.Name.Position = Vector2.new(headPos.X, headPos.Y - 18)
@@ -316,13 +300,12 @@ local function CreateUI()
     ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
     local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0,300,0,290) -- extended height to fit new toggle
+    Frame.Size = UDim2.new(0,300,0,290)
     Frame.Position = UDim2.new(0.5,-150,0.5,-145)
     Frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
     Frame.Active = true
     Frame.Parent = ScreenGui
 
-    -- Draggable
     local dragging = false
     local dragInput, mousePos, framePos
     Frame.InputBegan:Connect(function(input)
@@ -396,7 +379,6 @@ local function CreateUI()
     ToggleESPButton.BackgroundColor3 = Color3.fromRGB(80,80,80)
     ToggleESPButton.Parent = Frame
 
-    -- New: Button to toggle whether ESP shows username or display name
     local NameModeButton = Instance.new("TextButton")
     NameModeButton.Size = UDim2.new(1,-20,0,30)
     NameModeButton.Position = UDim2.new(0,10,0,200)
@@ -414,7 +396,6 @@ local function CreateUI()
     DistanceBox.BackgroundColor3 = Color3.fromRGB(40,40,40)
     DistanceBox.Parent = Frame
 
-    -- Button logic
     WLButton.MouseButton1Click:Connect(function()
         local name = tostring(InputBox.Text or ""):gsub("^%s*(.-)%s*$", "%1")
         if name ~= "" then
@@ -432,15 +413,12 @@ local function CreateUI()
     end)
 
     RefreshButton.MouseButton1Click:Connect(function()
-        -- Remove all existing ESP drawings
         for player, data in pairs(ESPObjects) do
             cleanupESPForPlayer(player)
         end
 
-        -- Clear ESPObjects completely
         ESPObjects = {}
 
-        -- Recreate ESP for all players
         for _, p in ipairs(Players:GetPlayers()) do
             setupESP(p)
         end
@@ -451,11 +429,9 @@ local function CreateUI()
         ToggleESPButton.Text = ESPEnabled and "ESP: ON" or "ESP: OFF"
     end)
 
-    -- Name mode toggle: switches whether on-screen name shows username or displayname
     NameModeButton.MouseButton1Click:Connect(function()
         UseDisplayNameForESP = not UseDisplayNameForESP
         NameModeButton.Text = UseDisplayNameForESP and "Name Mode: DisplayName" or "Name Mode: Username"
-        -- No need to rebuild ESP; render loop will pick up the change next frame.
     end)
 
     DistanceBox.FocusLost:Connect(function(enterPressed)
