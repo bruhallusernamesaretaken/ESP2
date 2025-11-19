@@ -14,7 +14,7 @@ local Blacklist = {}
 local COLORS = {
     Enemy = Color3.fromRGB(255,0,0),
     Ally = Color3.fromRGB(0,255,0),
-    Skeleton = Color3.fromRGB(255,255,255),
+    Skeleton = Color3.fromRGB(255,255,255)
     Line = Color3.fromRGB(0,0,255)
 }
 
@@ -85,6 +85,7 @@ local function cleanupESPForPlayer(player)
         end
     end
 
+    -- remove facing line if present
     if data.FacingLine then
         pcall(function() data.FacingLine:Remove() end)
     end
@@ -142,7 +143,7 @@ local function setupESP(player)
             skeleton[pair[1].."_"..pair[2]] = createLine()
         end
 
-        -- create facing line (will use replicated camera look when present)
+        -- create facing line (from head to 5 studs forward)
         local facingLine = createLine()
 
         ESPObjects[player] = {
@@ -204,42 +205,6 @@ Players.PlayerAdded:Connect(setupESP)
 Players.PlayerRemoving:Connect(function(player)
     cleanupESPForPlayer(player)
 end)
-
--- Utility: attempt to read a player's replicated camera look direction from common locations
-local function getReplicatedLookVectorFromCharacter(char)
-    if not char then return nil end
-
-    -- 1) CFrameValue named "CameraCFrame"
-    local cfVal = char:FindFirstChild("CameraCFrame")
-    if cfVal and typeof(cfVal.Value) == "CFrame" and cfVal.Value.LookVector then
-        local lv = cfVal.Value.LookVector
-        if lv.Magnitude > 0 then return lv.Unit end
-    end
-
-    -- 2) Vector3Value named "CameraLookVector"
-    local vecVal = char:FindFirstChild("CameraLookVector")
-    if vecVal and typeof(vecVal.Value) == "Vector3" and vecVal.Value.Magnitude > 0 then
-        return vecVal.Value.Unit
-    end
-
-    -- 3) CFrameValue named "PlayerCamera"
-    local cfVal2 = char:FindFirstChild("PlayerCamera")
-    if cfVal2 and typeof(cfVal2.Value) == "CFrame" and cfVal2.Value.LookVector then
-        local lv2 = cfVal2.Value.LookVector
-        if lv2.Magnitude > 0 then return lv2.Unit end
-    end
-
-    -- 4) Optional: a Folder named "ESP" containing "CameraLook" Vector3Value (some projects)
-    local espFolder = char:FindFirstChild("ESP")
-    if espFolder and espFolder:IsA("Folder") then
-        local v = espFolder:FindFirstChild("CameraLook")
-        if v and typeof(v.Value) == "Vector3" and v.Value.Magnitude > 0 then
-            return v.Value.Unit
-        end
-    end
-
-    return nil
-end
 
 -- ESP update (render loop)
 RunService.RenderStepped:Connect(function()
@@ -311,37 +276,18 @@ RunService.RenderStepped:Connect(function()
             end
         end
 
-        -- Facing line (use replicated camera look vector when present)
+        -- Facing line (head to 5 studs forward)
         if data.FacingLine then
+            -- Use same vertical offset as head label for consistent appearance
             local headPos3 = head.Position + Vector3.new(0,0.5,0)
-
-            -- Prefer replicated camera look vector if a Value exists
-            local lookVector = getReplicatedLookVectorFromCharacter(char)
-
-            -- Fallbacks
-            if not lookVector then
-                if hrp and hrp.CFrame then
-                    lookVector = hrp.CFrame.LookVector
-                end
-            end
-            if not lookVector then
-                lookVector = head.CFrame.LookVector
-            end
-
-            -- If lookVector is present, compute target 5 studs forward from the player's camera look direction
-            if lookVector and lookVector.Magnitude > 0 then
-                local targetWorld = headPos3 + (lookVector.Unit * 5)
-
-                local p_head, on_head = Camera:WorldToViewportPoint(headPos3)
-                local p_target, on_target = Camera:WorldToViewportPoint(targetWorld)
-                if on_head and on_target then
-                    data.FacingLine.From = Vector2.new(p_head.X, p_head.Y)
-                    data.FacingLine.To = Vector2.new(p_target.X, p_target.Y)
-                    data.FacingLine.Visible = true
-                    data.FacingLine.Color = color
-                else
-                    data.FacingLine.Visible = false
-                end
+            local targetWorld = headPos3 + (head.CFrame.LookVector * 5)
+            local p_head, on_head = Camera:WorldToViewportPoint(headPos3)
+            local p_target, on_target = Camera:WorldToViewportPoint(targetWorld)
+            if on_head and on_target then
+                data.FacingLine.From = Vector2.new(p_head.X, p_head.Y)
+                data.FacingLine.To = Vector2.new(p_target.X, p_target.Y)
+                data.FacingLine.Visible = true
+                data.FacingLine.Color = COLORS.Line
             else
                 data.FacingLine.Visible = false
             end
