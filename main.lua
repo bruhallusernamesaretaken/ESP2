@@ -311,7 +311,7 @@ RunService.RenderStepped:Connect(function()
                 data.FacingLine.To = Vector2.new(p_target.X, p_target.Y)
                 data.FacingLine.Visible = true
                 -- use team/enemy color to match name
-                data.FacingLine.Color = color
+                data.FacingLine.Color = COLORS.Line
             else
                 data.FacingLine.Visible = false
             end
