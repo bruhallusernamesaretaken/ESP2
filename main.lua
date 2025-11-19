@@ -84,6 +84,11 @@ local function cleanupESPForPlayer(player)
         end
     end
 
+    -- remove facing line if present
+    if data.FacingLine then
+        pcall(function() data.FacingLine:Remove() end)
+    end
+
     ESPObjects[player] = nil
 end
 
@@ -137,6 +142,9 @@ local function setupESP(player)
             skeleton[pair[1].."_"..pair[2]] = createLine()
         end
 
+        -- create facing line (from head to 5 studs forward)
+        local facingLine = createLine()
+
         ESPObjects[player] = {
             Character = char,
             Name = nameTag,
@@ -144,7 +152,8 @@ local function setupESP(player)
             Distance = distanceTag,
             Skeleton = skeleton,
             EquippedConns = {},
-            Bones = bonesTable
+            Bones = bonesTable,
+            FacingLine = facingLine
         }
 
         local data = ESPObjects[player]
@@ -208,6 +217,9 @@ RunService.RenderStepped:Connect(function()
                     line.Visible = false
                 end
             end
+            if data.FacingLine then
+                data.FacingLine.Visible = false
+            end
         end
         return
     end
@@ -230,6 +242,7 @@ RunService.RenderStepped:Connect(function()
             if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
             for _, line in pairs(data.Skeleton) do line.Visible = false end
+            if data.FacingLine then data.FacingLine.Visible = false end
             continue
         end
 
@@ -259,6 +272,23 @@ RunService.RenderStepped:Connect(function()
                 end
             else
                 if line then line.Visible = false end
+            end
+        end
+
+        -- Facing line (head to 5 studs forward)
+        if data.FacingLine then
+            -- Use same vertical offset as head label for consistent appearance
+            local headPos3 = head.Position + Vector3.new(0,0.5,0)
+            local targetWorld = headPos3 + (head.CFrame.LookVector * 5)
+            local p_head, on_head = Camera:WorldToViewportPoint(headPos3)
+            local p_target, on_target = Camera:WorldToViewportPoint(targetWorld)
+            if on_head and on_target then
+                data.FacingLine.From = Vector2.new(p_head.X, p_head.Y)
+                data.FacingLine.To = Vector2.new(p_target.X, p_target.Y)
+                data.FacingLine.Visible = true
+                data.FacingLine.Color = color
+            else
+                data.FacingLine.Visible = false
             end
         end
 
