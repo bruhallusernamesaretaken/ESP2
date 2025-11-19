@@ -55,6 +55,17 @@ local function createLine()
     return line
 end
 
+local function createCham()
+    local c = Drawing.new("Circle")
+    c.Filled = true
+    c.Thickness = 1
+    c.Radius = 10
+    c.Color = COLORS.Skeleton
+    c.Transparency = 0.55
+    c.Visible = false
+    return c
+end
+
 -- Helper to safely cleanup an ESP entry
 local function cleanupESPForPlayer(player)
     local data = ESPObjects[player]
@@ -68,6 +79,10 @@ local function cleanupESPForPlayer(player)
     end
     if data.Equipped then
         pcall(function() data.Equipped:Remove() end)
+    end
+
+    if data.Cham then
+        pcall(function() data.Cham:Remove() end)
     end
 
     if data.EquippedConns then
@@ -127,6 +142,7 @@ local function setupESP(player)
         local equippedTag = createText(12)
         local distanceTag = createText(13)
         local skeleton = {}
+        local cham = createCham()
 
         local bonesTable = R15Bones
         if humanoid and humanoid.RigType == Enum.HumanoidRigType.R6 then
@@ -145,6 +161,7 @@ local function setupESP(player)
             Skeleton = skeleton,
             EquippedConns = {},
             Bones = bonesTable,
+            Cham = cham,
         }
 
         local data = ESPObjects[player]
@@ -203,6 +220,7 @@ RunService.RenderStepped:Connect(function()
             if data.Name then data.Name.Visible = false end
             if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
+            if data.Cham then data.Cham.Visible = false end
             if data.Skeleton then
                 for _, line in pairs(data.Skeleton) do
                     line.Visible = false
@@ -222,13 +240,14 @@ RunService.RenderStepped:Connect(function()
 
         local hrp = char:FindFirstChild("HumanoidRootPart")
         local head = char:FindFirstChild("Head")
-        if not (hrp and head) then continue end
+        if not (hrp and head) then cleanupESPForPlayer(player); continue end
 
         local distance = (hrp.Position - camPos).Magnitude
         if distance > MAX_DISTANCE then
             if data.Name then data.Name.Visible = false end
             if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
+            if data.Cham then data.Cham.Visible = false end
             for _, line in pairs(data.Skeleton) do line.Visible = false end
             if data.FacingLine then data.FacingLine.Visible = false end
             continue
@@ -263,14 +282,16 @@ RunService.RenderStepped:Connect(function()
             end
         end
 
-        local headPos,onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
+        local headPos, onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
         if onScreen then
+            -- Update equipped tag
             if data.Equipped then
                 data.Equipped.Position = Vector2.new(headPos.X, headPos.Y - 32)
                 data.Equipped.Color = Color3.fromRGB(180, 180, 180)
                 data.Equipped.Visible = true
             end
 
+            -- Update name tag
             if data.Name then
                 data.Name.Text = getESPName(player)
                 data.Name.Position = Vector2.new(headPos.X, headPos.Y - 18)
@@ -278,16 +299,29 @@ RunService.RenderStepped:Connect(function()
                 data.Name.Visible = true
             end
 
+            -- Update distance tag
             if data.Distance then
                 data.Distance.Text = math.floor(distance).." studs"
                 data.Distance.Position = Vector2.new(headPos.X, headPos.Y - 5)
                 data.Distance.Color = Color3.fromRGB(180, 180, 180)
                 data.Distance.Visible = true
             end
+
+            -- Update cham (filled circle at head)
+            if data.Cham then
+                -- radius scales with distance (closer = larger). Clamp to sane values.
+                local radius = math.clamp(1200 / (distance + 1), 6, 120)
+                data.Cham.Position = Vector2.new(headPos.X, headPos.Y)
+                data.Cham.Radius = radius
+                data.Cham.Color = color
+                data.Cham.Transparency = 0.55
+                data.Cham.Visible = true
+            end
         else
             if data.Name then data.Name.Visible = false end
             if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
+            if data.Cham then data.Cham.Visible = false end
         end
     end
 end)
@@ -445,103 +479,3 @@ local function CreateUI()
 end
 
 CreateUI()
-
--- ======= Added: Head Chams (only appended, original code untouched) =======
-
--- Utility clamp (safer than assuming math.clamp exists)
-local function clamp(val, a, b)
-    if val < a then return a end
-    if val > b then return b end
-    return val
-end
-
--- Create a filled circle drawing for chams
-local function createCham()
-    local ok, cham = pcall(function()
-        local c = Drawing.new("Circle")
-        c.Radius = 12
-        c.Filled = true
-        c.Transparency = 0.6
-        c.Visible = false
-        -- default color; will be overridden each frame
-        c.Color = COLORS.Enemy
-        return c
-    end)
-    return ok and cham or nil
-end
-
--- Reuse the team/whitelist/blacklist logic for cham color
-local function getChamColorForPlayer(player)
-    local color = COLORS.Enemy
-    if isWhitelisted(player) then
-        color = COLORS.Ally
-    elseif isBlacklisted(player) then
-        color = COLORS.Enemy
-    elseif LocalPlayer.Team and player.Team == LocalPlayer.Team then
-        color = COLORS.Ally
-    end
-    return color
-end
-
--- Render loop for chams (separate connection so we only append behavior)
-RunService.RenderStepped:Connect(function()
-    -- If ESP is disabled, hide any chams we created
-    if not ESPEnabled then
-        for _, data in pairs(ESPObjects) do
-            if data and data.Cham then
-                data.Cham.Visible = false
-            end
-        end
-        return
-    end
-
-    local camPos = Camera.CFrame.Position
-
-    for player, data in pairs(ESPObjects) do
-        if not data then continue end
-
-        -- If character no longer exists, remove any cham we made
-        if not data.Character or not data.Character.Parent then
-            if data.Cham then
-                pcall(function() data.Cham:Remove() end)
-                data.Cham = nil
-            end
-            continue
-        end
-
-        -- Ensure we have a cham Drawing object for this player
-        if not data.Cham then
-            local cham = createCham()
-            if cham then
-                data.Cham = cham
-            end
-        end
-
-        local head = data.Character:FindFirstChild("Head")
-        if not head or not data.Cham then
-            if data.Cham then data.Cham.Visible = false end
-            continue
-        end
-
-        local headPos3 = head.Position + Vector3.new(0, 0.2, 0) -- slightly above center
-        local screenPos, onScreen = Camera:WorldToViewportPoint(headPos3)
-        local distance = (headPos3 - camPos).Magnitude
-
-        -- Show cham only when on screen and within MAX_DISTANCE
-        if onScreen and distance <= MAX_DISTANCE then
-            local color = getChamColorForPlayer(player)
-            data.Cham.Visible = true
-            data.Cham.Center = Vector2.new(screenPos.X, screenPos.Y)
-
-            -- Radius scales inversely with distance (clamped)
-            local computed = 1000 / math.max(distance, 1) -- avoid divide-by-zero
-            local radius = clamp(computed, 6, 80)
-            data.Cham.Radius = radius
-
-            data.Cham.Color = color
-            data.Cham.Transparency = 0.55
-        else
-            data.Cham.Visible = false
-        end
-    end
-end)
