@@ -66,10 +66,8 @@ local function createHeadCham(headPart, color)
         h.OutlineColor = Color3.fromRGB(0,0,0)
         h.OutlineTransparency = 0.6
         h.Enabled = true
-        -- DepthMode may not exist in some engine versions; protect with pcall
-        pcall(function() h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop end)
-        -- Parent to workspace so the local client can see it
-        h.Parent = workspace
+        h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        h.Parent = headPart
         return h
     end)
     if ok then
