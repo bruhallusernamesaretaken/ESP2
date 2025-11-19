@@ -14,8 +14,7 @@ local Blacklist = {}
 local COLORS = {
     Enemy = Color3.fromRGB(255,0,0),
     Ally = Color3.fromRGB(0,255,0),
-    Skeleton = Color3.fromRGB(255,255,255),
-    Forward = Color3.fromRGB(0,170,255) -- color for forward line
+    Skeleton = Color3.fromRGB(255,255,255)
 }
 
 local ESPObjects = {}
@@ -87,10 +86,6 @@ local function cleanupESPForPlayer(player)
         end
     end
 
-    if data.Forward then
-        pcall(function() data.Forward:Remove() end)
-    end
-
     ESPObjects[player] = nil
 end
 
@@ -121,7 +116,8 @@ end
 
 -- Setup ESP for a player
 local function setupESP(player)
-    -- removed early return so LocalPlayer also gets ESP/forward line
+    if player == LocalPlayer then return end
+
     local function onCharacter(char)
         -- Remove old ESP if present
         if ESPObjects[player] then
@@ -146,19 +142,13 @@ local function setupESP(player)
             skeleton[pair[1].."_"..pair[2]] = createLine()
         end
 
-        -- Create forward-facing line for this player
-        local forwardLine = createLine()
-        forwardLine.Thickness = 3
-        forwardLine.Color = COLORS.Forward
-
-        -- store ESP data (now includes Forward)
+        -- store ESP data
         ESPObjects[player] = {
             Character = char,
             Name = nameTag,
             Equipped = equippedTag,
             Distance = distanceTag,
             Skeleton = skeleton,
-            Forward = forwardLine,
             EquippedConns = {},
             Bones = bonesTable
         }
@@ -229,9 +219,6 @@ RunService.RenderStepped:Connect(function()
                     line.Visible = false
                 end
             end
-            if data.Forward then
-                data.Forward.Visible = false
-            end
         end
         return
     end
@@ -246,11 +233,7 @@ RunService.RenderStepped:Connect(function()
 
         local hrp = char:FindFirstChild("HumanoidRootPart")
         local head = char:FindFirstChild("Head")
-        if not (hrp and head) then
-            -- still ensure forward hidden if no head
-            if data.Forward then data.Forward.Visible = false end
-            continue
-        end
+        if not (hrp and head) then continue end
 
         local distance = (hrp.Position - camPos).Magnitude
         if distance > MAX_DISTANCE then
@@ -258,7 +241,6 @@ RunService.RenderStepped:Connect(function()
             if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
             for _, line in pairs(data.Skeleton) do line.Visible = false end
-            if data.Forward then data.Forward.Visible = false end
             continue
         end
 
@@ -322,24 +304,6 @@ RunService.RenderStepped:Connect(function()
             if data.Name then data.Name.Visible = false end
             if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
-        end
-
-        -- Forward-facing 5-stud line for this player
-        if data.Forward then
-            local startPos = head.Position
-            local endPos = startPos + (head.CFrame.LookVector * 5) -- 5 studs forward
-
-            local p1, on1 = Camera:WorldToViewportPoint(startPos)
-            local p2, on2 = Camera:WorldToViewportPoint(endPos)
-
-            if on1 or on2 then
-                data.Forward.From = Vector2.new(p1.X, p1.Y)
-                data.Forward.To = Vector2.new(p2.X, p2.Y)
-                data.Forward.Color = COLORS.Forward
-                data.Forward.Visible = true
-            else
-                data.Forward.Visible = false
-            end
         end
     end
 end)
