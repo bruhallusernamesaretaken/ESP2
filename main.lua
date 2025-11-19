@@ -15,7 +15,6 @@ local COLORS = {
     Enemy = Color3.fromRGB(255,0,0),
     Ally = Color3.fromRGB(0,255,0),
     Skeleton = Color3.fromRGB(255,255,255)
-    Line = Color3.fromRGB(0,0,255)
 }
 
 local ESPObjects = {}
@@ -273,23 +272,6 @@ RunService.RenderStepped:Connect(function()
                 end
             else
                 if line then line.Visible = false end
-            end
-        end
-
-        -- Facing line (head to 5 studs forward)
-        if data.FacingLine then
-            -- Use same vertical offset as head label for consistent appearance
-            local headPos3 = head.Position + Vector3.new(0,0.5,0)
-            local targetWorld = headPos3 + (head.CFrame.LookVector * 5)
-            local p_head, on_head = Camera:WorldToViewportPoint(headPos3)
-            local p_target, on_target = Camera:WorldToViewportPoint(targetWorld)
-            if on_head and on_target then
-                data.FacingLine.From = Vector2.new(p_head.X, p_head.Y)
-                data.FacingLine.To = Vector2.new(p_target.X, p_target.Y)
-                data.FacingLine.Visible = true
-                data.FacingLine.Color = COLORS.Line
-            else
-                data.FacingLine.Visible = false
             end
         end
 
