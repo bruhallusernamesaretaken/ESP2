@@ -85,7 +85,6 @@ local function cleanupESPForPlayer(player)
         end
     end
 
-    -- remove facing line if present
     if data.FacingLine then
         pcall(function() data.FacingLine:Remove() end)
     end
@@ -143,7 +142,7 @@ local function setupESP(player)
             skeleton[pair[1].."_"..pair[2]] = createLine()
         end
 
-        -- create facing line (will use camera look vector when available)
+        -- create facing line (will use replicated camera look when present)
         local facingLine = createLine()
 
         ESPObjects[player] = {
@@ -205,6 +204,42 @@ Players.PlayerAdded:Connect(setupESP)
 Players.PlayerRemoving:Connect(function(player)
     cleanupESPForPlayer(player)
 end)
+
+-- Utility: attempt to read a player's replicated camera look direction from common locations
+local function getReplicatedLookVectorFromCharacter(char)
+    if not char then return nil end
+
+    -- 1) CFrameValue named "CameraCFrame"
+    local cfVal = char:FindFirstChild("CameraCFrame")
+    if cfVal and typeof(cfVal.Value) == "CFrame" and cfVal.Value.LookVector then
+        local lv = cfVal.Value.LookVector
+        if lv.Magnitude > 0 then return lv.Unit end
+    end
+
+    -- 2) Vector3Value named "CameraLookVector"
+    local vecVal = char:FindFirstChild("CameraLookVector")
+    if vecVal and typeof(vecVal.Value) == "Vector3" and vecVal.Value.Magnitude > 0 then
+        return vecVal.Value.Unit
+    end
+
+    -- 3) CFrameValue named "PlayerCamera"
+    local cfVal2 = char:FindFirstChild("PlayerCamera")
+    if cfVal2 and typeof(cfVal2.Value) == "CFrame" and cfVal2.Value.LookVector then
+        local lv2 = cfVal2.Value.LookVector
+        if lv2.Magnitude > 0 then return lv2.Unit end
+    end
+
+    -- 4) Optional: a Folder named "ESP" containing "CameraLook" Vector3Value (some projects)
+    local espFolder = char:FindFirstChild("ESP")
+    if espFolder and espFolder:IsA("Folder") then
+        local v = espFolder:FindFirstChild("CameraLook")
+        if v and typeof(v.Value) == "Vector3" and v.Value.Magnitude > 0 then
+            return v.Value.Unit
+        end
+    end
+
+    return nil
+end
 
 -- ESP update (render loop)
 RunService.RenderStepped:Connect(function()
@@ -276,42 +311,37 @@ RunService.RenderStepped:Connect(function()
             end
         end
 
-        -- Facing line (prefer replicated camera look vector if present)
+        -- Facing line (use replicated camera look vector when present)
         if data.FacingLine then
             local headPos3 = head.Position + Vector3.new(0,0.5,0)
 
-            -- Try to read a replicated Vector3Value named "CameraLookVector" under the character.
-            -- If your game replicates each player's camera look direction into that value, it'll be used.
-            -- Otherwise fall back to HumanoidRootPart.CFrame.LookVector, then Head.CFrame.LookVector.
-            local lookVector
-            local camLookValue = char:FindFirstChild("CameraLookVector")
-            if camLookValue and camLookValue.Value and typeof(camLookValue.Value) == "Vector3" then
-                if camLookValue.Value.Magnitude > 0 then
-                    lookVector = camLookValue.Value.Unit
-                end
-            end
+            -- Prefer replicated camera look vector if a Value exists
+            local lookVector = getReplicatedLookVectorFromCharacter(char)
 
+            -- Fallbacks
             if not lookVector then
                 if hrp and hrp.CFrame then
                     lookVector = hrp.CFrame.LookVector
                 end
             end
-
             if not lookVector then
                 lookVector = head.CFrame.LookVector
             end
 
-            -- final target 5 studs along chosen look vector
-            local targetWorld = headPos3 + (lookVector * 5)
+            -- If lookVector is present, compute target 5 studs forward from the player's camera look direction
+            if lookVector and lookVector.Magnitude > 0 then
+                local targetWorld = headPos3 + (lookVector.Unit * 5)
 
-            local p_head, on_head = Camera:WorldToViewportPoint(headPos3)
-            local p_target, on_target = Camera:WorldToViewportPoint(targetWorld)
-            if on_head and on_target then
-                data.FacingLine.From = Vector2.new(p_head.X, p_head.Y)
-                data.FacingLine.To = Vector2.new(p_target.X, p_target.Y)
-                data.FacingLine.Visible = true
-                -- use team/enemy color to match name
-                data.FacingLine.Color = COLORS.Line
+                local p_head, on_head = Camera:WorldToViewportPoint(headPos3)
+                local p_target, on_target = Camera:WorldToViewportPoint(targetWorld)
+                if on_head and on_target then
+                    data.FacingLine.From = Vector2.new(p_head.X, p_head.Y)
+                    data.FacingLine.To = Vector2.new(p_target.X, p_target.Y)
+                    data.FacingLine.Visible = true
+                    data.FacingLine.Color = color
+                else
+                    data.FacingLine.Visible = false
+                end
             else
                 data.FacingLine.Visible = false
             end
