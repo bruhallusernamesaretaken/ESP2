@@ -55,15 +55,28 @@ local function createLine()
     return line
 end
 
-local function createCham()
-    local c = Drawing.new("Circle")
-    c.Filled = true
-    c.Thickness = 1
-    c.Radius = 10
-    c.Color = COLORS.Skeleton
-    c.Transparency = 0.55
-    c.Visible = false
-    return c
+-- Create a head-sized cham (Highlight) adorning the head
+local function createHeadCham(headPart, color)
+    if not headPart then return nil end
+    local ok, highlight = pcall(function()
+        local h = Instance.new("Highlight")
+        h.Adornee = headPart
+        h.FillColor = color
+        h.FillTransparency = 0.5
+        h.OutlineColor = Color3.fromRGB(0,0,0)
+        h.OutlineTransparency = 0.6
+        h.Enabled = true
+        -- DepthMode may not exist in some engine versions; protect with pcall
+        pcall(function() h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop end)
+        -- Parent to workspace so the local client can see it
+        h.Parent = workspace
+        return h
+    end)
+    if ok then
+        return highlight
+    else
+        return nil
+    end
 end
 
 -- Helper to safely cleanup an ESP entry
@@ -81,10 +94,6 @@ local function cleanupESPForPlayer(player)
         pcall(function() data.Equipped:Remove() end)
     end
 
-    if data.Cham then
-        pcall(function() data.Cham:Remove() end)
-    end
-
     if data.EquippedConns then
         for _, conn in pairs(data.EquippedConns) do
             if conn and conn.Disconnect then
@@ -97,6 +106,10 @@ local function cleanupESPForPlayer(player)
         for _, line in pairs(data.Skeleton) do
             pcall(function() line:Remove() end)
         end
+    end
+
+    if data.Cham then
+        pcall(function() data.Cham:Destroy() end)
     end
 
     ESPObjects[player] = nil
@@ -142,7 +155,6 @@ local function setupESP(player)
         local equippedTag = createText(12)
         local distanceTag = createText(13)
         local skeleton = {}
-        local cham = createCham()
 
         local bonesTable = R15Bones
         if humanoid and humanoid.RigType == Enum.HumanoidRigType.R6 then
@@ -161,7 +173,7 @@ local function setupESP(player)
             Skeleton = skeleton,
             EquippedConns = {},
             Bones = bonesTable,
-            Cham = cham,
+            Cham = nil, -- will hold the Highlight for the head
         }
 
         local data = ESPObjects[player]
@@ -180,11 +192,23 @@ local function setupESP(player)
         local connAdded = char.ChildAdded:Connect(function(child)
             if child:IsA("Tool") then
                 updateEquipped()
+            elseif child.Name == "Head" then
+                -- Recreate cham if head was replaced
+                if data.Cham then
+                    pcall(function() data.Cham:Destroy() end)
+                    data.Cham = nil
+                end
+                data.Cham = createHeadCham(child, COLORS.Enemy)
             end
         end)
         local connRemoved = char.ChildRemoved:Connect(function(child)
             if child:IsA("Tool") then
                 pcall(updateEquipped)
+            elseif child.Name == "Head" then
+                if data.Cham then
+                    pcall(function() data.Cham:Destroy() end)
+                    data.Cham = nil
+                end
             end
         end)
 
@@ -192,6 +216,12 @@ local function setupESP(player)
         table.insert(data.EquippedConns, connRemoved)
 
         updateEquipped()
+
+        -- Create cham for head (if present)
+        local headPart = char:FindFirstChild("Head")
+        if headPart then
+            data.Cham = createHeadCham(headPart, COLORS.Enemy)
+        end
 
         humanoid.Died:Connect(function()
             cleanupESPForPlayer(player)
@@ -220,11 +250,13 @@ RunService.RenderStepped:Connect(function()
             if data.Name then data.Name.Visible = false end
             if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
-            if data.Cham then data.Cham.Visible = false end
             if data.Skeleton then
                 for _, line in pairs(data.Skeleton) do
                     line.Visible = false
                 end
+            end
+            if data.Cham then
+                data.Cham.Enabled = false
             end
         end
         return
@@ -240,16 +272,16 @@ RunService.RenderStepped:Connect(function()
 
         local hrp = char:FindFirstChild("HumanoidRootPart")
         local head = char:FindFirstChild("Head")
-        if not (hrp and head) then cleanupESPForPlayer(player); continue end
+        if not (hrp and head) then continue end
 
         local distance = (hrp.Position - camPos).Magnitude
         if distance > MAX_DISTANCE then
             if data.Name then data.Name.Visible = false end
             if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
-            if data.Cham then data.Cham.Visible = false end
             for _, line in pairs(data.Skeleton) do line.Visible = false end
             if data.FacingLine then data.FacingLine.Visible = false end
+            if data.Cham then data.Cham.Enabled = false end
             continue
         end
 
@@ -262,6 +294,7 @@ RunService.RenderStepped:Connect(function()
             color = COLORS.Ally
         end
 
+        -- Update skeleton lines
         for _, pair in ipairs(data.Bones or R15Bones) do
             local part1 = char:FindFirstChild(pair[1])
             local part2 = char:FindFirstChild(pair[2])
@@ -282,16 +315,28 @@ RunService.RenderStepped:Connect(function()
             end
         end
 
-        local headPos, onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
+        -- Update the head cham color/visibility
+        if data.Cham then
+            data.Cham.FillColor = color
+            -- make outline color slightly darker
+            local outline = Color3.new(math.max(color.R - 0.2, 0), math.max(color.G - 0.2, 0), math.max(color.B - 0.2, 0))
+            data.Cham.OutlineColor = outline
+            data.Cham.Enabled = true
+        else
+            -- try to (re)create cham if head exists but Cham missing
+            if head then
+                data.Cham = createHeadCham(head, color)
+            end
+        end
+
+        local headPos,onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
         if onScreen then
-            -- Update equipped tag
             if data.Equipped then
                 data.Equipped.Position = Vector2.new(headPos.X, headPos.Y - 32)
                 data.Equipped.Color = Color3.fromRGB(180, 180, 180)
                 data.Equipped.Visible = true
             end
 
-            -- Update name tag
             if data.Name then
                 data.Name.Text = getESPName(player)
                 data.Name.Position = Vector2.new(headPos.X, headPos.Y - 18)
@@ -299,29 +344,17 @@ RunService.RenderStepped:Connect(function()
                 data.Name.Visible = true
             end
 
-            -- Update distance tag
             if data.Distance then
                 data.Distance.Text = math.floor(distance).." studs"
                 data.Distance.Position = Vector2.new(headPos.X, headPos.Y - 5)
                 data.Distance.Color = Color3.fromRGB(180, 180, 180)
                 data.Distance.Visible = true
             end
-
-            -- Update cham (filled circle at head)
-            if data.Cham then
-                -- radius scales with distance (closer = larger). Clamp to sane values.
-                local radius = math.clamp(1200 / (distance + 1), 6, 120)
-                data.Cham.Position = Vector2.new(headPos.X, headPos.Y)
-                data.Cham.Radius = radius
-                data.Cham.Color = color
-                data.Cham.Transparency = 0.55
-                data.Cham.Visible = true
-            end
         else
             if data.Name then data.Name.Visible = false end
             if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
-            if data.Cham then data.Cham.Visible = false end
+            if data.Cham then data.Cham.Enabled = false end
         end
     end
 end)
