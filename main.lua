@@ -14,7 +14,8 @@ local Blacklist = {}
 local COLORS = {
     Enemy = Color3.fromRGB(255,0,0),
     Ally = Color3.fromRGB(0,255,0),
-    Skeleton = Color3.fromRGB(255,255,255)
+    Skeleton = Color3.fromRGB(255,255,255),
+    Line = Color3.fromRGB(0,0,255)
 }
 
 local ESPObjects = {}
@@ -142,7 +143,7 @@ local function setupESP(player)
             skeleton[pair[1].."_"..pair[2]] = createLine()
         end
 
-        -- create facing line (from head to 5 studs forward)
+        -- create facing line (will use camera look vector when available)
         local facingLine = createLine()
 
         ESPObjects[player] = {
@@ -275,17 +276,41 @@ RunService.RenderStepped:Connect(function()
             end
         end
 
-        -- Facing line (head to 5 studs forward)
+        -- Facing line (prefer replicated camera look vector if present)
         if data.FacingLine then
-            -- Use same vertical offset as head label for consistent appearance
             local headPos3 = head.Position + Vector3.new(0,0.5,0)
-            local targetWorld = headPos3 + (head.CFrame.LookVector * 5)
+
+            -- Try to read a replicated Vector3Value named "CameraLookVector" under the character.
+            -- If your game replicates each player's camera look direction into that value, it'll be used.
+            -- Otherwise fall back to HumanoidRootPart.CFrame.LookVector, then Head.CFrame.LookVector.
+            local lookVector
+            local camLookValue = char:FindFirstChild("CameraLookVector")
+            if camLookValue and camLookValue.Value and typeof(camLookValue.Value) == "Vector3" then
+                if camLookValue.Value.Magnitude > 0 then
+                    lookVector = camLookValue.Value.Unit
+                end
+            end
+
+            if not lookVector then
+                if hrp and hrp.CFrame then
+                    lookVector = hrp.CFrame.LookVector
+                end
+            end
+
+            if not lookVector then
+                lookVector = head.CFrame.LookVector
+            end
+
+            -- final target 5 studs along chosen look vector
+            local targetWorld = headPos3 + (lookVector * 5)
+
             local p_head, on_head = Camera:WorldToViewportPoint(headPos3)
             local p_target, on_target = Camera:WorldToViewportPoint(targetWorld)
             if on_head and on_target then
                 data.FacingLine.From = Vector2.new(p_head.X, p_head.Y)
                 data.FacingLine.To = Vector2.new(p_target.X, p_target.Y)
                 data.FacingLine.Visible = true
+                -- use team/enemy color to match name
                 data.FacingLine.Color = color
             else
                 data.FacingLine.Visible = false
