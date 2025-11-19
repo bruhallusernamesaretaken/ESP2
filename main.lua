@@ -14,7 +14,8 @@ local Blacklist = {}
 local COLORS = {
     Enemy = Color3.fromRGB(255,0,0),
     Ally = Color3.fromRGB(0,255,0),
-    Skeleton = Color3.fromRGB(255,255,255)
+    Skeleton = Color3.fromRGB(255,255,255),
+    Forward = Color3.fromRGB(0,170,255) -- color for the local player's forward line
 }
 
 local ESPObjects = {}
@@ -55,6 +56,12 @@ local function createLine()
     line.Visible = true
     return line
 end
+
+-- Create a forward-facing line for the local player (from head forward 5 studs)
+local ForwardLine = createLine()
+ForwardLine.Thickness = 3
+ForwardLine.Color = COLORS.Forward
+ForwardLine.Visible = false
 
 -- Helper to safely cleanup an ESP entry
 local function cleanupESPForPlayer(player)
@@ -220,6 +227,8 @@ RunService.RenderStepped:Connect(function()
                 end
             end
         end
+        -- Even if ESP is disabled, still update/clear the forward line visibility
+        ForwardLine.Visible = false
         return
     end
 
@@ -305,6 +314,33 @@ RunService.RenderStepped:Connect(function()
             if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
         end
+    end
+
+    -- Update the local player's forward-facing line each frame:
+    local myChar = LocalPlayer.Character
+    if myChar and myChar.Parent then
+        local myHead = myChar:FindFirstChild("Head")
+        if myHead then
+            local startPos = myHead.Position
+            local endPos = startPos + (myHead.CFrame.LookVector * 5) -- 5 studs forward
+
+            local p1, on1 = Camera:WorldToViewportPoint(startPos)
+            local p2, on2 = Camera:WorldToViewportPoint(endPos)
+
+            -- Only show if at least part of the line is on-screen
+            if on1 or on2 then
+                ForwardLine.From = Vector2.new(p1.X, p1.Y)
+                ForwardLine.To = Vector2.new(p2.X, p2.Y)
+                ForwardLine.Visible = true
+                ForwardLine.Color = COLORS.Forward
+            else
+                ForwardLine.Visible = false
+            end
+        else
+            ForwardLine.Visible = false
+        end
+    else
+        ForwardLine.Visible = false
     end
 end)
 
