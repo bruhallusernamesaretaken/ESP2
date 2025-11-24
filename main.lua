@@ -406,21 +406,21 @@ RunService.RenderStepped:Connect(function()
         local headPos,onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
         if onScreen then
             if data.Equipped then
-                data.Equipped.Position = Vector2.new(headPos.X, headPos.Y - 32)
+                data.Equipped.Position = Vector2.new(headPos.X, headPos.Y - 45)
                 data.Equipped.Color = Color3.fromRGB(180, 180, 180)
                 data.Equipped.Visible = true
             end
 
             if data.Name then
                 data.Name.Text = getESPName(player)
-                data.Name.Position = Vector2.new(headPos.X, headPos.Y - 18)
+                data.Name.Position = Vector2.new(headPos.X, headPos.Y - 21)
                 data.Name.Color = color
                 data.Name.Visible = true
             end
 
             if data.Distance then
                 data.Distance.Text = math.floor(distance).." studs"
-                data.Distance.Position = Vector2.new(headPos.X, headPos.Y - 5)
+                data.Distance.Position = Vector2.new(headPos.X, headPos.Y - 18)
                 data.Distance.Color = Color3.fromRGB(180, 180, 180)
                 data.Distance.Visible = true
             end
