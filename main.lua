@@ -55,28 +55,6 @@ local function createLine()
     return line
 end
 
--- Create a head-sized cham (Highlight) adorning the head
-local function createHeadCham(headPart, color)
-    if not headPart then return nil end
-    local ok, highlight = pcall(function()
-        local h = Instance.new("Highlight")
-        h.Adornee = headPart
-        h.FillColor = color
-        h.FillTransparency = 0.5
-        h.OutlineColor = Color3.fromRGB(0,0,0)
-        h.OutlineTransparency = 0.6
-        h.Enabled = true
-        h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        h.Parent = headPart
-        return h
-    end)
-    if ok then
-        return highlight
-    else
-        return nil
-    end
-end
-
 -- Helper to safely cleanup an ESP entry
 local function cleanupESPForPlayer(player)
     local data = ESPObjects[player]
@@ -104,10 +82,6 @@ local function cleanupESPForPlayer(player)
         for _, line in pairs(data.Skeleton) do
             pcall(function() line:Remove() end)
         end
-    end
-
-    if data.Cham then
-        pcall(function() data.Cham:Destroy() end)
     end
 
     ESPObjects[player] = nil
@@ -171,7 +145,6 @@ local function setupESP(player)
             Skeleton = skeleton,
             EquippedConns = {},
             Bones = bonesTable,
-            Cham = nil, -- will hold the Highlight for the head
         }
 
         local data = ESPObjects[player]
@@ -190,36 +163,16 @@ local function setupESP(player)
         local connAdded = char.ChildAdded:Connect(function(child)
             if child:IsA("Tool") then
                 updateEquipped()
-            elseif child.Name == "Head" then
-                -- Recreate cham if head was replaced
-                if data.Cham then
-                    pcall(function() data.Cham:Destroy() end)
-                    data.Cham = nil
-                end
-                data.Cham = createHeadCham(child, COLORS.Enemy)
-            end
         end)
         local connRemoved = char.ChildRemoved:Connect(function(child)
             if child:IsA("Tool") then
                 pcall(updateEquipped)
-            elseif child.Name == "Head" then
-                if data.Cham then
-                    pcall(function() data.Cham:Destroy() end)
-                    data.Cham = nil
-                end
-            end
         end)
 
         table.insert(data.EquippedConns, connAdded)
         table.insert(data.EquippedConns, connRemoved)
 
         updateEquipped()
-
-        -- Create cham for head (if present)
-        local headPart = char:FindFirstChild("Head")
-        if headPart then
-            data.Cham = createHeadCham(headPart, COLORS.Enemy)
-        end
 
         humanoid.Died:Connect(function()
             cleanupESPForPlayer(player)
@@ -253,9 +206,6 @@ RunService.RenderStepped:Connect(function()
                     line.Visible = false
                 end
             end
-            if data.Cham then
-                data.Cham.Enabled = false
-            end
         end
         return
     end
@@ -279,7 +229,6 @@ RunService.RenderStepped:Connect(function()
             if data.Equipped then data.Equipped.Visible = false end
             for _, line in pairs(data.Skeleton) do line.Visible = false end
             if data.FacingLine then data.FacingLine.Visible = false end
-            if data.Cham then data.Cham.Enabled = false end
             continue
         end
 
@@ -310,20 +259,6 @@ RunService.RenderStepped:Connect(function()
                 end
             else
                 if line then line.Visible = false end
-            end
-        end
-
-        -- Update the head cham color/visibility
-        if data.Cham then
-            data.Cham.FillColor = color
-            -- make outline color slightly darker
-            local outline = Color3.new(math.max(color.R - 0.2, 0), math.max(color.G - 0.2, 0), math.max(color.B - 0.2, 0))
-            data.Cham.OutlineColor = outline
-            data.Cham.Enabled = true
-        else
-            -- try to (re)create cham if head exists but Cham missing
-            if head then
-                data.Cham = createHeadCham(head, color)
             end
         end
 
