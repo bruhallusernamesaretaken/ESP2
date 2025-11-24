@@ -55,6 +55,26 @@ local function createLine()
     return line
 end
 
+-- Helper: compute 8 world-space corners of an oriented bounding box
+local function GetBoxCorners(cf, size)
+    local corners = {
+        Vector3.new(-size.X/2, -size.Y/2, -size.Z/2),
+        Vector3.new(-size.X/2, -size.Y/2,  size.Z/2),
+        Vector3.new(-size.X/2,  size.Y/2, -size.Z/2),
+        Vector3.new(-size.X/2,  size.Y/2,  size.Z/2),
+        Vector3.new( size.X/2, -size.Y/2, -size.Z/2),
+        Vector3.new( size.X/2, -size.Y/2,  size.Z/2),
+        Vector3.new( size.X/2,  size.Y/2, -size.Z/2),
+        Vector3.new( size.X/2,  size.Y/2,  size.Z/2)
+    }
+
+    for i, corner in ipairs(corners) do
+        corners[i] = cf:PointToWorldSpace(corner)
+    end
+
+    return corners
+end
+
 -- Helper to safely cleanup an ESP entry
 local function cleanupESPForPlayer(player)
     local data = ESPObjects[player]
@@ -80,6 +100,12 @@ local function cleanupESPForPlayer(player)
 
     if data.Skeleton then
         for _, line in pairs(data.Skeleton) do
+            pcall(function() line:Remove() end)
+        end
+    end
+
+    if data.Box then
+        for _, line in pairs(data.Box) do
             pcall(function() line:Remove() end)
         end
     end
@@ -137,6 +163,14 @@ local function setupESP(player)
             skeleton[pair[1].."_"..pair[2]] = createLine()
         end
 
+        -- create box lines (Left, Right, Top, Bottom)
+        local boxLines = {
+            Left = createLine(),
+            Right = createLine(),
+            Top = createLine(),
+            Bottom = createLine()
+        }
+
         ESPObjects[player] = {
             Character = char,
             Name = nameTag,
@@ -145,6 +179,7 @@ local function setupESP(player)
             Skeleton = skeleton,
             EquippedConns = {},
             Bones = bonesTable,
+            Box = boxLines,
         }
 
         local data = ESPObjects[player]
@@ -208,6 +243,11 @@ RunService.RenderStepped:Connect(function()
                     line.Visible = false
                 end
             end
+            if data.Box then
+                for _, line in pairs(data.Box) do
+                    line.Visible = false
+                end
+            end
         end
         return
     end
@@ -231,6 +271,9 @@ RunService.RenderStepped:Connect(function()
             if data.Equipped then data.Equipped.Visible = false end
             for _, line in pairs(data.Skeleton) do line.Visible = false end
             if data.FacingLine then data.FacingLine.Visible = false end
+            if data.Box then
+                for _, line in pairs(data.Box) do line.Visible = false end
+            end
             continue
         end
 
@@ -243,6 +286,7 @@ RunService.RenderStepped:Connect(function()
             color = COLORS.Ally
         end
 
+        -- Update skeleton lines
         for _, pair in ipairs(data.Bones or R15Bones) do
             local part1 = char:FindFirstChild(pair[1])
             local part2 = char:FindFirstChild(pair[2])
@@ -262,6 +306,102 @@ RunService.RenderStepped:Connect(function()
                 if line then line.Visible = false end
             end
         end
+
+        -- ---------- Box ESP ----------
+        -- Try to get model bounding box (CFrame, size). If fail, fall back to head/hrp extents.
+        local success, modelCFrame, modelSize = pcall(function()
+            return char:GetBoundingBox()
+        end)
+
+        if success and modelCFrame and modelSize then
+            local corners = GetBoxCorners(modelCFrame, modelSize)
+
+            -- project corners and determine 2D AABB
+            local minX, minY = math.huge, math.huge
+            local maxX, maxY = -math.huge, -math.huge
+            local anyOnScreen = false
+
+            for _, corner in ipairs(corners) do
+                local screenPoint, onScreen = Camera:WorldToViewportPoint(corner)
+                if onScreen then anyOnScreen = true end
+                -- even if off-screen, still use screenPoint to compute box (keeps consistent)
+                minX = math.min(minX, screenPoint.X)
+                minY = math.min(minY, screenPoint.Y)
+                maxX = math.max(maxX, screenPoint.X)
+                maxY = math.max(maxY, screenPoint.Y)
+            end
+
+            if anyOnScreen and minX ~= math.huge then
+                local topLeft = Vector2.new(minX, minY)
+                local topRight = Vector2.new(maxX, minY)
+                local bottomLeft = Vector2.new(minX, maxY)
+                local bottomRight = Vector2.new(maxX, maxY)
+
+                -- set lines
+                local box = data.Box
+                box.Left.From = topLeft
+                box.Left.To = bottomLeft
+                box.Left.Visible = true
+                box.Left.Color = color
+
+                box.Right.From = topRight
+                box.Right.To = bottomRight
+                box.Right.Visible = true
+                box.Right.Color = color
+
+                box.Top.From = topLeft
+                box.Top.To = topRight
+                box.Top.Visible = true
+                box.Top.Color = color
+
+                box.Bottom.From = bottomLeft
+                box.Bottom.To = bottomRight
+                box.Bottom.Visible = true
+                box.Bottom.Color = color
+            else
+                -- not visible on screen
+                if data.Box then
+                    for _, line in pairs(data.Box) do line.Visible = false end
+                end
+            end
+        else
+            -- fallback: draw small box around head screen pos
+            local headPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+            if onScreen then
+                local size = 30 + math.clamp(500 / math.max(distance,1), 0, 200) -- simple scale with distance
+                local half = size/2
+                local topLeft = Vector2.new(headPos.X - half, headPos.Y - half)
+                local topRight = Vector2.new(headPos.X + half, headPos.Y - half)
+                local bottomLeft = Vector2.new(headPos.X - half, headPos.Y + half)
+                local bottomRight = Vector2.new(headPos.X + half, headPos.Y + half)
+
+                local box = data.Box
+                box.Left.From = topLeft
+                box.Left.To = bottomLeft
+                box.Left.Visible = true
+                box.Left.Color = color
+
+                box.Right.From = topRight
+                box.Right.To = bottomRight
+                box.Right.Visible = true
+                box.Right.Color = color
+
+                box.Top.From = topLeft
+                box.Top.To = topRight
+                box.Top.Visible = true
+                box.Top.Color = color
+
+                box.Bottom.From = bottomLeft
+                box.Bottom.To = bottomRight
+                box.Bottom.Visible = true
+                box.Bottom.Color = color
+            else
+                if data.Box then
+                    for _, line in pairs(data.Box) do line.Visible = false end
+                end
+            end
+        end
+        -- ---------- End Box ESP ----------
 
         local headPos,onScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
         if onScreen then
@@ -288,6 +428,9 @@ RunService.RenderStepped:Connect(function()
             if data.Name then data.Name.Visible = false end
             if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
+            if data.Box then
+                for _, line in pairs(data.Box) do line.Visible = false end
+            end
         end
     end
 end)
