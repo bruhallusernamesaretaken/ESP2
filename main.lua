@@ -243,7 +243,6 @@ RunService.RenderStepped:Connect(function()
             color = COLORS.Ally
         end
 
-        -- Update skeleton lines
         for _, pair in ipairs(data.Bones or R15Bones) do
             local part1 = char:FindFirstChild(pair[1])
             local part2 = char:FindFirstChild(pair[2])
@@ -289,7 +288,6 @@ RunService.RenderStepped:Connect(function()
             if data.Name then data.Name.Visible = false end
             if data.Distance then data.Distance.Visible = false end
             if data.Equipped then data.Equipped.Visible = false end
-            if data.Cham then data.Cham.Enabled = false end
         end
     end
 end)
