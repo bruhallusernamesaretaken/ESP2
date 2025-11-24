@@ -447,7 +447,7 @@ RunService.RenderStepped:Connect(function()
 
             if data.Name then
                 data.Name.Text = getESPName(player)
-                data.Name.Position = Vector2.new(headPos.X, headPos.Y - 35)
+                data.Name.Position = Vector2.new(headPos.X, headPos.Y - 32)
                 data.Name.Color = color
                 data.Name.Visible = true
             end
