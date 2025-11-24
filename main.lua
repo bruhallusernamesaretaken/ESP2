@@ -18,6 +18,8 @@ local COLORS = {
 }
 
 local ESPObjects = {}
+-- store per-player connection info (so we don't double-connect CharacterAdded)
+local PlayerConns = {}
 
 local R15Bones = {
     {"Head","UpperTorso"},{"UpperTorso","LowerTorso"},
@@ -137,11 +139,24 @@ local function getESPName(player)
     end
 end
 
--- Setup ESP for a player
+-- Setup ESP for a player (idempotent)
 local function setupESP(player)
     if player == LocalPlayer then return end
 
+    -- If we already created a connection record for this player, reuse its onCharacter if needed
+    local connRecord = PlayerConns[player]
+    if connRecord then
+        -- if player currently has a character and no ESPObjects entry, re-create it by calling stored onCharacter
+        if player.Character and not ESPObjects[player] and connRecord.onCharacter then
+            -- call safely
+            pcall(connRecord.onCharacter, player.Character)
+        end
+        return
+    end
+
+    -- create onCharacter and characterAdded connection; store them so we don't connect multiple times
     local function onCharacter(char)
+        -- ensure we start clean for this player
         if ESPObjects[player] then
             cleanupESPForPlayer(player)
         end
@@ -212,13 +227,17 @@ local function setupESP(player)
         updateEquipped()
 
         humanoid.Died:Connect(function()
+            -- when the humanoid dies, remove current ESP visuals; CharacterAdded is still connected so new character will be handled
             cleanupESPForPlayer(player)
         end)
     end
 
-    player.CharacterAdded:Connect(onCharacter)
+    local charConn = player.CharacterAdded:Connect(onCharacter)
+    PlayerConns[player] = { charConn = charConn, onCharacter = onCharacter }
+
+    -- if player already has character at setup time, create ESP now
     if player.Character then
-        onCharacter(player.Character)
+        pcall(onCharacter, player.Character)
     end
 end
 
@@ -228,7 +247,14 @@ for _, p in ipairs(Players:GetPlayers()) do
 end
 Players.PlayerAdded:Connect(setupESP)
 Players.PlayerRemoving:Connect(function(player)
+    -- cleanup visuals
     cleanupESPForPlayer(player)
+    -- disconnect character connection if present
+    local rec = PlayerConns[player]
+    if rec and rec.charConn then
+        pcall(function() rec.charConn:Disconnect() end)
+    end
+    PlayerConns[player] = nil
 end)
 
 -- ESP update (render loop)
@@ -253,7 +279,20 @@ RunService.RenderStepped:Connect(function()
     end
 
     local camPos = Camera.CFrame.Position
-    for player, data in pairs(ESPObjects) do
+
+    -- iterate a list of players to avoid unpredictability if ESPObjects is modified during loop
+    local playersList = {}
+    for player, _ in pairs(ESPObjects) do
+        table.insert(playersList, player)
+    end
+
+    for _, player in ipairs(playersList) do
+        local data = ESPObjects[player]
+        if not data then
+            -- nothing to do (could have been cleaned up)
+            continue
+        end
+
         local char = data.Character
         if not char or not char.Parent then
             cleanupESPForPlayer(player)
@@ -308,7 +347,6 @@ RunService.RenderStepped:Connect(function()
         end
 
         -- ---------- Box ESP ----------
-        -- Try to get model bounding box (CFrame, size). If fail, fall back to head/hrp extents.
         local success, modelCFrame, modelSize = pcall(function()
             return char:GetBoundingBox()
         end)
@@ -316,7 +354,6 @@ RunService.RenderStepped:Connect(function()
         if success and modelCFrame and modelSize then
             local corners = GetBoxCorners(modelCFrame, modelSize)
 
-            -- project corners and determine 2D AABB
             local minX, minY = math.huge, math.huge
             local maxX, maxY = -math.huge, -math.huge
             local anyOnScreen = false
@@ -324,7 +361,6 @@ RunService.RenderStepped:Connect(function()
             for _, corner in ipairs(corners) do
                 local screenPoint, onScreen = Camera:WorldToViewportPoint(corner)
                 if onScreen then anyOnScreen = true end
-                -- even if off-screen, still use screenPoint to compute box (keeps consistent)
                 minX = math.min(minX, screenPoint.X)
                 minY = math.min(minY, screenPoint.Y)
                 maxX = math.max(maxX, screenPoint.X)
@@ -337,7 +373,6 @@ RunService.RenderStepped:Connect(function()
                 local bottomLeft = Vector2.new(minX, maxY)
                 local bottomRight = Vector2.new(maxX, maxY)
 
-                -- set lines
                 local box = data.Box
                 box.Left.From = topLeft
                 box.Left.To = bottomLeft
@@ -359,7 +394,6 @@ RunService.RenderStepped:Connect(function()
                 box.Bottom.Visible = true
                 box.Bottom.Color = color
             else
-                -- not visible on screen
                 if data.Box then
                     for _, line in pairs(data.Box) do line.Visible = false end
                 end
@@ -368,7 +402,7 @@ RunService.RenderStepped:Connect(function()
             -- fallback: draw small box around head screen pos
             local headPos, onScreen = Camera:WorldToViewportPoint(head.Position)
             if onScreen then
-                local size = 30 + math.clamp(500 / math.max(distance,1), 0, 200) -- simple scale with distance
+                local size = 30 + math.clamp(500 / math.max(distance,1), 0, 200)
                 local half = size/2
                 local topLeft = Vector2.new(headPos.X - half, headPos.Y - half)
                 local topRight = Vector2.new(headPos.X + half, headPos.Y - half)
@@ -556,12 +590,12 @@ local function CreateUI()
     end)
 
     RefreshButton.MouseButton1Click:Connect(function()
-        for player, data in pairs(ESPObjects) do
+        -- remove all current drawings without disconnecting CharacterAdded handlers
+        for player, _ in pairs(ESPObjects) do
             cleanupESPForPlayer(player)
         end
 
-        ESPObjects = {}
-
+        -- now re-create ESP for players that have character (uses stored onCharacter closures)
         for _, p in ipairs(Players:GetPlayers()) do
             setupESP(p)
         end
