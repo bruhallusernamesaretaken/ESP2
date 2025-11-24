@@ -163,10 +163,12 @@ local function setupESP(player)
         local connAdded = char.ChildAdded:Connect(function(child)
             if child:IsA("Tool") then
                 updateEquipped()
+            end
         end)
         local connRemoved = char.ChildRemoved:Connect(function(child)
             if child:IsA("Tool") then
                 pcall(updateEquipped)
+            end
         end)
 
         table.insert(data.EquippedConns, connAdded)
