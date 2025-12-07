@@ -622,3 +622,25 @@ local function CreateUI()
 end
 
 CreateUI()
+
+local uiVisible = true
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    -- ignore processed inputs & when typing in a TextBox
+    if gameProcessed then return end
+    if UserInputService:GetFocusedTextBox() then return end
+
+    if input.KeyCode == Enum.KeyCode.LeftAlt then
+        uiVisible = not uiVisible
+
+        -- try stored reference first, otherwise fallback to finding it by name
+        if ESPScreenGui and ESPScreenGui.Parent then
+            ESPScreenGui.Enabled = uiVisible
+        else
+            local gui = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("ESPWhitelistUI")
+            if gui and gui:IsA("ScreenGui") then
+                gui.Enabled = uiVisible
+                ESPScreenGui = gui
+            end
+        end
+    end
+end)
